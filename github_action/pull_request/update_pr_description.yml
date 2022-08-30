@@ -1,0 +1,27 @@
+name: Update PR Description
+
+on: 
+  pull_request:
+    branches:
+      - "master" 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      
+      - name: Create Changelog
+        run: |
+            git log -n 5
+            echo ${{ github.head_ref }}
+            echo 'CHANGELOG<<EOF' >> $GITHUB_ENV
+            node scripts/gen-release-pr-numbers.js >> $GITHUB_ENV
+            echo 'EOF' >> $GITHUB_ENV
+      
+      - name: Update Changelog to Description
+        uses: riskledger/update-pr-description@v2
+        with:
+          body: ${{ env.CHANGELOG }}
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,56 @@
+name: Build and test image
+
+on: 
+  workflow_call:
+    secrets:
+      PROD_CP_GCP_PROJECT_ID:
+        required: true
+      DEV_CP_GCP_PROJECT_ID:
+        required: true
+
+env:
+  REGISTRY: gcr.io
+
+jobs:
+  build_and_test_image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Export environments
+        run: |
+          REPOSITORY=${GITHUB_REPOSITORY##*/}
+          IMAGE_TAG_SHA=${GITHUB_SHA:0:7}
+
+          if [[ "$REF" =~ ^[0-9]+.[0-9]+.[0-9]+$ || $GITHUB_REF_NAME == "master" ]]; then
+            GCP_PROJECT_ID=${{ secrets.PROD_CP_GCP_PROJECT_ID }}
+          else
+            GCP_PROJECT_ID=${{ secrets.DEV_CP_GCP_PROJECT_ID }}
+          fi
+
+          echo "node version: `node -v`"
+
+          cat <<- EOF >> ${GITHUB_ENV}
+          IMAGE_NAME=${REGISTRY}/${GCP_PROJECT_ID}/${REPOSITORY}
+          IMAGE_TAG_SHA=${IMAGE_TAG_SHA}
+          EOF
+
+      - name: Build image
+        run: |
+          docker build -f Dockerfile -t ${IMAGE_NAME}:${IMAGE_TAG_SHA} `pwd`
+
+      - name: Unit test
+        run: |
+          docker run --rm --entrypoint=npm ${IMAGE_NAME}:${IMAGE_TAG_SHA} test
+
+      - name: Save image
+        run: |
+          docker save -o image.tar ${IMAGE_NAME}:${IMAGE_TAG_SHA}
+        if: contains('refs/heads/dev refs/heads/master', github.ref)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: image
+          path: image.tar
+        if: contains('refs/heads/dev refs/heads/master', github.ref)

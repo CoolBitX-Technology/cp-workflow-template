@@ -1,0 +1,51 @@
+name: Push to branches action
+
+on: push
+
+jobs:
+  build:
+    uses: ./.github/workflows/build_and_test_image.yml
+    secrets:
+      PROD_CP_GCP_PROJECT_ID: ${{ secrets.PROD_CP_GCP_PROJECT_ID }}
+      DEV_CP_GCP_PROJECT_ID: ${{ secrets.DEV_CP_GCP_PROJECT_ID }}
+
+  push:
+    needs: build
+    uses: ./.github/workflows/push_and_rotate_image.yml
+    secrets:
+      PROD_CP_GCP_PROJECT_ID: ${{ secrets.PROD_CP_GCP_PROJECT_ID }}
+      DEV_CP_GCP_PROJECT_ID: ${{ secrets.DEV_CP_GCP_PROJECT_ID }}
+      PROD_CP_GCP_SVC_TERRAFORM: ${{ secrets.PROD_CP_GCP_SVC_TERRAFORM }}
+      DEV_CP_GCP_SVC_TERRAFORM: ${{ secrets.DEV_CP_GCP_SVC_TERRAFORM }}
+      PROD_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE: ${{ secrets.PROD_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
+      DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE: ${{ secrets.DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
+    if: contains('refs/heads/dev refs/heads/master', github.ref)
+
+  plan:
+    needs: build
+    uses: ./.github/workflows/plan_terraform.yml
+    secrets:
+      PROD_CP_GCP_PROJECT_ID: ${{ secrets.PROD_CP_GCP_PROJECT_ID }}
+      DEV_CP_GCP_PROJECT_ID: ${{ secrets.DEV_CP_GCP_PROJECT_ID }}
+      DEVOPS_ACCESS_REPO_TOKEN: ${{ secrets.DEVOPS_ACCESS_REPO_TOKEN }}
+      PROD_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE: ${{ secrets.PROD_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
+      DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE: ${{ secrets.DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
+
+  apply:
+    needs: 
+      - push
+      - plan
+    uses: ./.github/workflows/apply_terraform.yml
+    secrets:
+      PROD_CP_GCP_PROJECT_ID: ${{ secrets.PROD_CP_GCP_PROJECT_ID }}
+      DEV_CP_GCP_PROJECT_ID: ${{ secrets.DEV_CP_GCP_PROJECT_ID }}
+      DEVOPS_ACCESS_REPO_TOKEN: ${{ secrets.DEVOPS_ACCESS_REPO_TOKEN }}
+      PROD_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE: ${{ secrets.PROD_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
+      DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE: ${{ secrets.DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
+    if: contains('refs/heads/dev refs/heads/master', github.ref)
+
+  notify:
+    needs: apply
+    uses: ./.github/workflows/notify_slack.yml
+    secrets:
+      CP_SLACK_CHANNEL_RG_CRYPTO: ${{ secrets.CP_SLACK_CHANNEL_RG_CRYPTO }}

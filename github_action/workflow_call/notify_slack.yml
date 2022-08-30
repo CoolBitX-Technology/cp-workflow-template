@@ -1,0 +1,56 @@
+name: Nofity Slack
+
+on: 
+  workflow_call:
+    secrets:
+      CP_SLACK_CHANNEL_RG_CRYPTO:
+        required: true
+
+jobs:
+  notify_slack:
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: technote-space/workflow-conclusion-action@v2
+        if: ${{ ! env.ACT }}
+
+      - name: vars
+        id: vars
+        run: |
+          STATUS=${WORKFLOW_CONCLUSION:-success} # neutral, success, skipped, cancelled, timed_out, action_required, failure
+          if [[ `echo 'success' | grep -E ${STATUS}` ]]; then
+            ICON_EMOJI=":white_check_mark:"
+          elif [[ `echo 'failure' | grep -E ${STATUS}` ]]; then
+            ICON_EMOJI=":sos:"
+          else
+            ICON_EMOJI=":eyes:"
+          fi
+          MESSAGE=" ${ICON_EMOJI} \`dev\` \`${STATUS}\` @${{ github.actor }}
+          this is message"
+          FOOTER="this is footer"
+          if [[ "${{ ! env.ACT }}" == "true" ]]; then
+            STATUS=${{ env.WORKFLOW_CONCLUSION }}
+            if [[ "push" == "${{ github.event_name }}" ]]; then
+              MESSAGE=" ${ICON_EMOJI} \`${{ github.ref_name }}\` \`${STATUS}\`
+              ${{ github.event.head_commit.message }}"
+              FOOTER="*${{ github.ref_name }}* of _${{ github.repository }}_"
+            elif [[ "pull_request" == "${{ github.event_name }}" ]]; then
+              MESSAGE=" ${ICON_EMOJI} \`${{ github.base_ref }}\` \`${STATUS}\`
+              ${{ github.event.pull_request.title }}"
+              FOOTER="*${{ github.head_ref }}* of _${{ github.repository }}_"
+            fi
+          fi
+          echo "::set-output name=message::${MESSAGE//$'\n'/'%0A'}"
+          echo "::set-output name=footer::${FOOTER}"
+          echo "::set-output name=status::${STATUS}"
+
+      - name: slack_notification
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.CP_SLACK_CHANNEL_RG_CRYPTO }}
+          SLACK_USERNAME: Github Action
+          SLACK_ICON_EMOJI: ":robot_face:"
+          SLACK_COLOR: ${{ steps.vars.outputs.status }}
+          SLACK_MESSAGE: ${{ steps.vars.outputs.message }}
+          SLACK_FOOTER: ${{ steps.vars.outputs.footer }}
+          SLACK_LINK_NAMES: true

@@ -1,0 +1,83 @@
+name: Apply terraform
+
+on: 
+  workflow_call:
+    secrets:
+      PROD_CP_GCP_PROJECT_ID:
+        required: true
+      DEV_CP_GCP_PROJECT_ID:
+        required: true
+      DEVOPS_ACCESS_REPO_TOKEN:
+        required: true
+      PROD_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE:
+        required: true
+      DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE:
+        required: true
+
+jobs:
+  apply_terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Export environments
+        run: |
+          REPOSITORY=${GITHUB_REPOSITORY##*/}
+
+          if [[ "$REF" =~ ^[0-9]+.[0-9]+.[0-9]+$ || $GITHUB_REF_NAME == "master" ]]; then
+            GCP_ENV=production
+            GCP_PROJECT_ID=${{ secrets.PROD_CP_GCP_PROJECT_ID }}
+            INFRA_BRANCH=master
+          else
+            GCP_ENV=develop
+            GCP_PROJECT_ID=${{ secrets.DEV_CP_GCP_PROJECT_ID }}
+            INFRA_BRANCH=develop
+          fi
+
+          echo "node version: `node -v`"
+
+          cat <<- EOF >> ${GITHUB_ENV}
+          REPOSITORY=${REPOSITORY}
+          GCP_ENV=${GCP_ENV}
+          GCP_PROJECT_ID=${GCP_PROJECT_ID}
+          INFRA_BRANCH=${INFRA_BRANCH}
+          INFRA_REPO=CoolBitX-Technology/cp-platform-infrastructure
+          INFRA_DIR=${GITHUB_WORKSPACE}/_infra
+          EOF
+
+      - name: checkout_infra
+        uses: actions/checkout@v2
+        with:
+          repository: ${{ env.INFRA_REPO }}
+          path: ${{ env.INFRA_DIR }}
+          ref: ${{ env.INFRA_BRANCH }}
+          token: ${{ secrets.DEVOPS_ACCESS_REPO_TOKEN }}
+
+      - name: Authenticate gcloud
+        if: ${{ env.GCP_ENV == 'production' }}
+        uses: google-github-actions/auth@v0
+        with:
+          credentials_json: ${{ secrets.PROD_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
+
+      - name: Authenticate gcloud
+        if: ${{ env.GCP_ENV == 'develop' }}
+        uses: google-github-actions/auth@v0
+        with:
+          credentials_json: ${{ secrets.DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v0
+
+      - uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.2.x
+
+      - name: Terraform init
+        working-directory: ${{ env.INFRA_DIR }}/terraform
+        run: |
+          terraform init -backend-config=bucket=${GCP_PROJECT_ID}-terraform-state
+
+      - name: terraform_apply
+        working-directory: ${{ env.INFRA_DIR }}/terraform
+        run: |
+          terraform apply -auto-approve -var=env=${GCP_ENV} -target=module.${REPOSITORY}
