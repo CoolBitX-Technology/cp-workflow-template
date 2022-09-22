@@ -1,0 +1,27 @@
+name: Run integration test
+
+on: 
+  workflow_call:
+    inputs:
+      owner_slack_id:
+        type: string
+        required: true
+      service:
+        type: string
+        required: true
+    secrets:
+      PERSONAL_ACCESS_TOKEN:
+        required: true
+     
+jobs:
+  trigger_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Workflow dispatch
+        uses: benc-uk/workflow-dispatch@v1.1
+        with:
+          repo: CoolBitX-Technology/api-automation 
+          ref: master
+          workflow: API Integration Testing
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          inputs: '{ "owner": "${{ inputs.owner_slack_id }}", "service": "${{ inputs.service }}" }'
