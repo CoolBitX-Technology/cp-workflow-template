@@ -4,14 +4,15 @@ on: push
 
 jobs:
   build:
-    uses: ./.github/workflows/build_and_test_image.yml
+    uses: CoolBitX-Technology/cp-workflow-template/.github/workflows/build_and_test_image.yml@master
     secrets:
       PROD_CP_GCP_PROJECT_ID: ${{ secrets.PROD_CP_GCP_PROJECT_ID }}
       DEV_CP_GCP_PROJECT_ID: ${{ secrets.DEV_CP_GCP_PROJECT_ID }}
+      DEVOPS_READ_PACKAGE_TOKEN: ${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}
 
   push:
     needs: build
-    uses: ./.github/workflows/push_and_rotate_image.yml
+    uses: CoolBitX-Technology/cp-workflow-template/.github/workflows/push_and_rotate_image.yml@master
     secrets:
       PROD_CP_GCP_PROJECT_ID: ${{ secrets.PROD_CP_GCP_PROJECT_ID }}
       DEV_CP_GCP_PROJECT_ID: ${{ secrets.DEV_CP_GCP_PROJECT_ID }}
@@ -23,7 +24,7 @@ jobs:
 
   plan:
     needs: build
-    uses: ./.github/workflows/plan_terraform.yml
+    uses: CoolBitX-Technology/cp-workflow-template/.github/workflows/plan_terraform.yml@master
     secrets:
       PROD_CP_GCP_PROJECT_ID: ${{ secrets.PROD_CP_GCP_PROJECT_ID }}
       DEV_CP_GCP_PROJECT_ID: ${{ secrets.DEV_CP_GCP_PROJECT_ID }}
@@ -35,7 +36,7 @@ jobs:
     needs: 
       - push
       - plan
-    uses: ./.github/workflows/apply_terraform.yml
+    uses: CoolBitX-Technology/cp-workflow-template/.github/workflows/apply_terraform.yml@master
     secrets:
       PROD_CP_GCP_PROJECT_ID: ${{ secrets.PROD_CP_GCP_PROJECT_ID }}
       DEV_CP_GCP_PROJECT_ID: ${{ secrets.DEV_CP_GCP_PROJECT_ID }}
@@ -46,6 +47,6 @@ jobs:
 
   notify:
     needs: apply
-    uses: ./.github/workflows/notify_slack.yml
+    uses: CoolBitX-Technology/cp-workflow-template/.github/workflows/notify_slack.yml@master
     secrets:
       CP_SLACK_CHANNEL_RG_CRYPTO: ${{ secrets.CP_SLACK_CHANNEL_RG_CRYPTO }}

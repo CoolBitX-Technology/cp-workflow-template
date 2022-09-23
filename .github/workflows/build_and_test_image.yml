@@ -7,6 +7,8 @@ on:
         required: true
       DEV_CP_GCP_PROJECT_ID:
         required: true
+      DEVOPS_READ_PACKAGE_TOKEN: 
+        required: false
 
 env:
   REGISTRY: gcr.io
@@ -37,7 +39,7 @@ jobs:
 
       - name: Build image
         run: |
-          docker build -f Dockerfile -t ${IMAGE_NAME}:${IMAGE_TAG_SHA} `pwd`
+          docker build -f Dockerfile -t ${IMAGE_NAME}:${IMAGE_TAG_SHA} --build-arg NPM_TOKEN="${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}" `pwd`
 
       - name: Unit test
         run: |
