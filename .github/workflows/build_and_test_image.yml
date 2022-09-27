@@ -51,8 +51,9 @@ jobs:
         if: contains('refs/heads/dev refs/heads/master', github.ref)
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: image
           path: image.tar
+          retention-days: 5
         if: contains('refs/heads/dev refs/heads/master', github.ref)
