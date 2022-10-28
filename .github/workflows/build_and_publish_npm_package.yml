@@ -1,0 +1,22 @@
+name: Build and Publish NPM Package
+
+on: workflow_call
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+      - run: npm install
+      - run: npm test
+      - uses: JS-DevTools/npm-publish@v1
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+  notify:
+    needs: publish
+    uses: CoolBitX-Technology/cp-workflow-template/.github/workflows/notify_slack.yml@master
+    secrets:
+      CP_SLACK_CHANNEL_RG_CRYPTO: ${{ secrets.CP_SLACK_CHANNEL_RG_CRYPTO }}
