@@ -1,6 +1,10 @@
 name: Build and Publish NPM Package
 
-on: workflow_call
+on:
+  workflow_call:
+    secrets:
+      DEVOPS_READ_PACKAGE_TOKEN:
+        required: false
 
 jobs:
   publish:
@@ -10,11 +14,15 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: 16
-      - run: npm install
+      - run: |
+          echo "@coolbitx-technology:https://npm.pkg.github.com/" > .npmrc && \
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.PROD_CP_GCP_PROJECT_ID }}" >> .npmrc && \
+          npm ci --production && \
+          rm -f .npmrc
       - run: npm test
       - uses: JS-DevTools/npm-publish@v1
         with:
-          token: ${{ secrets.NPM_TOKEN }}
+          token: ${{ secrets.PROD_CP_GCP_PROJECT_ID }}
   notify:
     needs: publish
     uses: CoolBitX-Technology/cp-workflow-template/.github/workflows/notify_slack.yml@master
