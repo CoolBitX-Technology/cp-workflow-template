@@ -5,6 +5,8 @@ on:
     secrets:
       DEVOPS_READ_PACKAGE_TOKEN:
         required: false
+      DEVOPS_WRITE_PACKAGE_TOKEN:
+        required: false
 
 jobs:
   publish:
@@ -22,7 +24,7 @@ jobs:
       - run: npm test
       - uses: JS-DevTools/npm-publish@v1
         with:
-          token: ${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}
+          token: ${{ secrets.DEVOPS_WRITE_PACKAGE_TOKEN }}
   notify:
     needs: publish
     uses: CoolBitX-Technology/cp-workflow-template/.github/workflows/notify_slack.yml@master
