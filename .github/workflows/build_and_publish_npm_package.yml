@@ -26,3 +26,4 @@ jobs:
         with:
           token: ${{ secrets.DEVOPS_WRITE_PACKAGE_TOKEN }}
           registry: https://npm.pkg.github.com/
+
