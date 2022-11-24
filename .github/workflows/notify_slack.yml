@@ -40,9 +40,10 @@ jobs:
               FOOTER="*${{ github.head_ref }}* of _${{ github.repository }}_"
             fi
           fi
-          echo "::set-output name=message::${MESSAGE//$'\n'/'%0A'}"
-          echo "::set-output name=footer::${FOOTER}"
-          echo "::set-output name=status::${STATUS}"
+
+          echo "message=${MESSAGE//$'\n'/'%0A'}" >> $GITHUB_OUTPUT
+          echo "footer=${FOOTER}" >> $GITHUB_OUTPUT
+          echo "status=${STATUS}" >> $GITHUB_OUTPUT
 
       - name: slack_notification
         uses: rtCamp/action-slack-notify@v2
