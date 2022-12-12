@@ -39,7 +39,16 @@ jobs:
 
       - name: Build image
         run: |
-          docker build -f Dockerfile -t ${IMAGE_NAME}:${IMAGE_TAG_SHA} --build-arg NPM_TOKEN="${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}" `pwd`
+          if [[ "${{github.ref}}" == "refs/heads/master" ]]; then
+            docker build -f Dockerfile -t ${IMAGE_NAME}:${IMAGE_TAG_SHA} \
+            --build-arg NPM_TOKEN="${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}" \
+            --build-arg NODE_ENV=production `pwd`
+          fi
+          if [[ "${{github.ref}}" == "refs/heads/dev" || "${{github.ref}}" == "refs/heads/develop" ]]; then
+            docker build -f Dockerfile -t ${IMAGE_NAME}:${IMAGE_TAG_SHA} \
+            --build-arg NPM_TOKEN="${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}" \
+            --build-arg NODE_ENV=development `pwd`
+          fi
 
       - name: Unit test
         run: |
