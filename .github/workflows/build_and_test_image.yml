@@ -26,8 +26,10 @@ jobs:
 
           if [[ "$REF" =~ ^[0-9]+.[0-9]+.[0-9]+$ || $GITHUB_REF_NAME == "master" ]]; then
             GCP_PROJECT_ID=${{ secrets.PROD_CP_GCP_PROJECT_ID }}
+            ENV_FILE=.env.production
           else
             GCP_PROJECT_ID=${{ secrets.DEV_CP_GCP_PROJECT_ID }}
+            ENV_FILE=.env.development
           fi
 
           echo "node version: `node -v`"
@@ -35,11 +37,14 @@ jobs:
           cat <<- EOF >> ${GITHUB_ENV}
           IMAGE_NAME=${REGISTRY}/${GCP_PROJECT_ID}/${REPOSITORY}
           IMAGE_TAG_SHA=${IMAGE_TAG_SHA}
+          ENV_FILE=${ENV_FILE}
           EOF
 
       - name: Build image
         run: |
-          docker build -f Dockerfile -t ${IMAGE_NAME}:${IMAGE_TAG_SHA} --build-arg NPM_TOKEN="${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}" `pwd`
+            docker build -f Dockerfile -t ${IMAGE_NAME}:${IMAGE_TAG_SHA} \
+            --build-arg NPM_TOKEN="${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}" \
+            --build-arg ENV_FILE=${ENV_FILE} `pwd`
 
       - name: Unit test
         run: |
