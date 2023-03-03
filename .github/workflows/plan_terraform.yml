@@ -68,7 +68,7 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v0
 
-      - uses: hashicorp/setup-terraform@v1
+      - uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.3.x
 
@@ -85,4 +85,4 @@ jobs:
       - name: Terraform plan
         working-directory: ${{ env.INFRA_DIR }}/terraform
         run: |
-          terraform plan -var=env=${GCP_ENV} -target=module.${REPOSITORY}
+          terraform plan -lock=false -var=env=${GCP_ENV} -target=module.${REPOSITORY}
