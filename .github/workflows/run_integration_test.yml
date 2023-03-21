@@ -3,10 +3,13 @@ name: Run integration test
 on: 
   workflow_call:
     inputs:
-      owner_slack_id:
+      OWNER_SLACK_ID:
         type: string
         required: true
-      service:
+      SERVICE:
+        type: string
+        required: true
+      TEST_ENDPOINT:
         type: string
         required: true
     secrets:
@@ -24,4 +27,4 @@ jobs:
           ref: master
           workflow: API Integration Testing
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-          inputs: '{ "owner": "${{ inputs.owner_slack_id }}", "service": "${{ inputs.service }}" }'
+          inputs: '{ "owner": "${{ inputs.OWNER_SLACK_ID }}", "service": "${{ inputs.SERVICE }}", "test_endpoint": "${{ inputs.TEST_ENDPOINT }}" }'

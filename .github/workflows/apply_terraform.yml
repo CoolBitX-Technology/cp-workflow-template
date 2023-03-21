@@ -13,16 +13,32 @@ on:
         required: true
       DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE:
         required: true
+    inputs:
+      TEST:
+        type: boolean
+        default: false
+        required: false
+        description: 'A flag to determine whether to apply testing envionment.'
+    outputs:
+      TEST_ENDPOINT:
+        value: ${{ jobs.apply_terraform.outputs.TEST_ENDPOINT }}
+        description: "The endpoint that used for integration test."
 
 jobs:
   apply_terraform:
     runs-on: ubuntu-latest
+    outputs:
+      TEST_ENDPOINT: ${{ steps.terraform_output.outputs.test_endpoint }}
     steps:
       - uses: actions/checkout@main
 
       - name: Export environments
         run: |
-          REPOSITORY=${GITHUB_REPOSITORY##*/}
+          if [ ${{ inputs.TEST }} ]; then
+            REPOSITORY="test-${GITHUB_REPOSITORY##*/}"
+          else
+            REPOSITORY=${GITHUB_REPOSITORY##*/}
+          fi
 
           if [[ "$REF" =~ ^[0-9]+.[0-9]+.[0-9]+$ || $GITHUB_REF_NAME == "master" ]]; then
             GCP_ENV=production
@@ -45,7 +61,7 @@ jobs:
           INFRA_DIR=${GITHUB_WORKSPACE}/_infra
           EOF
 
-      - name: checkout_infra
+      - name: Checkout infra
         uses: actions/checkout@main
         with:
           repository: ${{ env.INFRA_REPO }}
@@ -77,7 +93,18 @@ jobs:
         run: |
           terraform init -backend-config=bucket=${GCP_PROJECT_ID}-terraform-state
 
-      - name: terraform_apply
+      - name: Terraform apply
         working-directory: ${{ env.INFRA_DIR }}/terraform
         run: |
-          terraform apply -auto-approve -var=env=${GCP_ENV} -target=module.${REPOSITORY}
+          terraform apply -auto-approve -var=env=${GCP_ENV} -var=testing=${{ inputs.TEST }} -target=module.${REPOSITORY}
+
+      - name: Terraform output
+        id: terraform_output
+        working-directory: ${{ env.INFRA_DIR }}/terraform
+        run: |
+          # Raw output will be 
+          # [command]/home/runner/work/_temp/65a07e07-0121-4063-a24e-ed1ad76a5099/terraform-bin output test-cp-launchpad-api-endpoint launchpad.api.test-wallet.cbx.io ::debug::Terraform exited with code 0. ::debug::stdout: launchpad.api.test-wallet.cbx.io%0A ::debug::stderr:  ::debug::exitcode: 0 
+          test_endpoint=$(terraform output -raw ${REPOSITORY}-endpoint | tr '\n' ' ' | awk '{print $5}' | awk -F':' '{print $1}')
+
+          echo "test_endpoint=$test_endpoint" >> "$GITHUB_OUTPUT"
+        if: ${{ inputs.TEST }}
