@@ -11,7 +11,8 @@ on:
         required: true
       TEST_ENDPOINT:
         type: string
-        required: true
+        default: ""
+        required: false
     secrets:
       PERSONAL_ACCESS_TOKEN:
         required: true
