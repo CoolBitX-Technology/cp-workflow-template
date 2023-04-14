@@ -19,7 +19,7 @@ jobs:
       - run: |
           echo "@coolbitx-technology:https://npm.pkg.github.com/" > .npmrc && \
           echo "//npm.pkg.github.com/:_authToken=${{ secrets.DEVOPS_WRITE_PACKAGE_TOKEN }}" >> .npmrc && \
-          npm ci --production && \
+          npm ci && \
           rm -f .npmrc
       - run: npm test
       - uses: JS-DevTools/npm-publish@v1
