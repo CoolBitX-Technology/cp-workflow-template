@@ -1,0 +1,16 @@
+# ref: https://github.com/kentaro-m/auto-assign-action
+# Set to true to add reviewers to pull requests
+addReviewers: true
+
+# A list of reviewers to be added to pull requests (GitHub user name)
+reviewers:
+  - and2352000 # Aaron
+  - Dorac # Dora
+  - hank121314 # Hank Chen
+  - haohaochung # Colin
+  - KuanYuLai # York
+  - tommychen-cbx # Tommy
+
+# A number of reviewers added to the pull request
+# Set 0 to add all the reviewers (default: 0)
+numberOfReviewers: 0

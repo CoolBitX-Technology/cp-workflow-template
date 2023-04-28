@@ -9,8 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Assign Reviewers to PR
-        uses: itsOliverBott/assign-pr-reviewers@release
+        uses: kentaro-m/auto-assign-action@v1.2.4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          users: "crypto-platform" 
-          ignore-drafts: true 
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
