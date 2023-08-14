@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: 16
       - run: |
-          echo "@coolbitx-technology:https://npm.pkg.github.com/" > .npmrc && \
+          echo "@coolbitx-technology:registry=https://npm.pkg.github.com/" > .npmrc && \
           echo "//npm.pkg.github.com/:_authToken=${{ secrets.DEVOPS_WRITE_PACKAGE_TOKEN }}" >> .npmrc && \
           npm ci --production && \
           rm -f .npmrc
