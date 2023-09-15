@@ -71,22 +71,22 @@ jobs:
 
       - name: Authenticate gcloud
         if: ${{ env.GCP_ENV == 'production' }}
-        uses: google-github-actions/auth@v0
+        uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.PROD_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
 
       - name: Authenticate gcloud
         if: ${{ env.GCP_ENV == 'develop' }}
-        uses: google-github-actions/auth@v0
+        uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
 
       - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v0
+        uses: google-github-actions/setup-gcloud@v1
 
-      - uses: hashicorp/setup-terraform@v2
+      - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.3.x
+          terraform_version: 1.5.x
           terraform_wrapper: false
 
       - name: Terraform init
