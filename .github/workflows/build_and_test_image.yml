@@ -9,7 +9,8 @@ on:
         required: true
       DEVOPS_READ_PACKAGE_TOKEN: 
         required: false
-
+      CI_ONEINCH_API_KEY:
+        required: false # only used for crypto-swap
 env:
   REGISTRY: gcr.io
 
@@ -48,7 +49,11 @@ jobs:
 
       - name: Unit test
         run: |
-          docker run --rm --entrypoint=npm ${IMAGE_NAME}:${IMAGE_TAG_SHA} test
+          if [ -n "${{ secrets.CI_ONEINCH_API_KEY }}" ]; then
+            docker run --rm --entrypoint=npm -e CI_ONEINCH_API_KEY=${{ secrets.CI_ONEINCH_API_KEY }} ${IMAGE_NAME}:${IMAGE_TAG_SHA} test
+          else
+            docker run --rm --entrypoint=npm ${IMAGE_NAME}:${IMAGE_TAG_SHA} test
+          fi
 
       - name: Save image
         run: |
