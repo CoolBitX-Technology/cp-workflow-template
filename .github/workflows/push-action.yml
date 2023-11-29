@@ -1,6 +1,8 @@
 name: Push to branches action
 
-on: push
+on: 
+  - workflow_dispatch
+  - push
 
 jobs:
   build:
