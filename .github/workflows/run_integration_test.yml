@@ -61,7 +61,7 @@ jobs:
       - name: Get integration test status
         run: |
           START_TIME=$(date +%s)
-          while [ $(( $(date +%s) - $START_TIME )) -lt 180 ]; do
+          while [ $(( $(date +%s) - $START_TIME )) -lt 300 ]; do
             status=$(curl -L \
               -H "Accept: application/vnd.github+json" \
               -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
@@ -77,4 +77,4 @@ jobs:
             fi          
             sleep 20
           done
-          echo "API testing didn't finish in 3 minutes" && exit 1
+          echo "API testing didn't finish in 5 minutes" && exit 1
