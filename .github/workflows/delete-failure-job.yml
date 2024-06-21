@@ -1,0 +1,29 @@
+name: Delete failure job
+
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: 'Namespace'
+        required: true
+        default: ''
+      jobName:
+        description: 'Job Name'
+        required: true
+        default: ''
+
+jobs:
+  execute-command:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Execute kubectl command
+        run: |
+          kubectl delete cronjob ${{ github.event.inputs.jobName }} -n ${{ github.event.inputs.namespace }}
