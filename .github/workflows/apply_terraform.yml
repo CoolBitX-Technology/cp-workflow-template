@@ -71,13 +71,13 @@ jobs:
 
       - name: Authenticate gcloud
         if: ${{ env.GCP_ENV == 'production' }}
-        uses: google-github-actions/auth@v1
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.PROD_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
 
       - name: Authenticate gcloud
         if: ${{ env.GCP_ENV == 'develop' }}
-        uses: google-github-actions/auth@v1
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.DEV_CP_GCP_SVC_GITHUB_RUNNER_KEY_FILE }}
 
