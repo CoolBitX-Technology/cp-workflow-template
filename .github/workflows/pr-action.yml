@@ -51,7 +51,7 @@ jobs:
     needs:
       - unit_test
     steps:
-      - uses: technote-space/workflow-conclusion-action@v3
+      - uses: technote-space/workflow-conclusion-action@v4
         if: ${{ ! env.ACT }}
 
       - name: vars
