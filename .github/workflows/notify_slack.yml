@@ -46,7 +46,7 @@ jobs:
           echo "status=${STATUS}" >> $GITHUB_OUTPUT
 
       - name: slack_notification
-        uses: rtCamp/action-slack-notify@v2
+        uses: rtCamp/action-slack-notify@v2.3.0
         env:
           SLACK_WEBHOOK: ${{ secrets.CP_SLACK_CHANNEL_RG_CRYPTO }}
           SLACK_USERNAME: Github Action
