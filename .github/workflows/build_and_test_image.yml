@@ -61,7 +61,7 @@ jobs:
         if: contains('refs/heads/dev refs/heads/master', github.ref)
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: image
           path: image.tar
