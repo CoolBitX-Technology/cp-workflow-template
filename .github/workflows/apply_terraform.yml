@@ -26,6 +26,7 @@ on:
 
 jobs:
   apply_terraform:
+    if: ${{ github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     outputs:
       TEST_ENDPOINT: ${{ steps.terraform_output.outputs.test_endpoint }}
