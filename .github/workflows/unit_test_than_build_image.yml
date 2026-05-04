@@ -28,9 +28,12 @@ jobs:
           node-version: ${{ inputs.node-version }}
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Configure npm auth
         env:
           NPM_TOKEN: ${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}
+        run: echo "//npm.pkg.github.com/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
+
+      - name: Install dependencies
         run: npm ci
 
       - name: Unit test
