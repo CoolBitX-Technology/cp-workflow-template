@@ -1,0 +1,83 @@
+name: Unit test then build image
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        required: false
+        default: '22.16.0'
+    secrets:
+      PROD_CP_GCP_PROJECT_ID:
+        required: true
+      DEV_CP_GCP_PROJECT_ID:
+        required: true
+      DEVOPS_READ_PACKAGE_TOKEN:
+        required: true
+env:
+  REGISTRY: gcr.io
+
+jobs:
+  unit_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        env:
+          NPM_TOKEN: ${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}
+        run: npm ci
+
+      - name: Unit test
+        run: npm test
+
+  build_image:
+    needs: unit_test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+
+      - name: Export environments
+        run: |
+          REPOSITORY=${GITHUB_REPOSITORY##*/}
+          IMAGE_TAG_SHA=${GITHUB_SHA:0:7}
+
+          if [[ "$REF" =~ ^[0-9]+.[0-9]+.[0-9]+$ || $GITHUB_REF_NAME == "master" ]]; then
+            GCP_PROJECT_ID=${{ secrets.PROD_CP_GCP_PROJECT_ID }}
+            ENV_FILE=.env.production
+          else
+            GCP_PROJECT_ID=${{ secrets.DEV_CP_GCP_PROJECT_ID }}
+            ENV_FILE=.env.development
+          fi
+
+          echo "node version: `node -v`"
+
+          cat <<- EOF >> ${GITHUB_ENV}
+          IMAGE_NAME=${REGISTRY}/${GCP_PROJECT_ID}/${REPOSITORY}
+          IMAGE_TAG_SHA=${IMAGE_TAG_SHA}
+          ENV_FILE=${ENV_FILE}
+          EOF
+
+      - name: Build image
+        run: |
+            docker build -f Dockerfile -t ${IMAGE_NAME}:${IMAGE_TAG_SHA} \
+            --build-arg NPM_TOKEN="${{ secrets.DEVOPS_READ_PACKAGE_TOKEN }}" \
+            --build-arg ENV_FILE=${ENV_FILE} `pwd`
+
+      - name: Save image
+        run: |
+          docker save -o image.tar ${IMAGE_NAME}:${IMAGE_TAG_SHA}
+        if: contains('refs/heads/dev refs/heads/master', github.ref)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image
+          path: image.tar
+          retention-days: 5
+        if: contains('refs/heads/dev refs/heads/master', github.ref)

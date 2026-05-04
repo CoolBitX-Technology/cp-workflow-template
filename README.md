@@ -14,5 +14,6 @@ A repo to place github workflow templates.
     ├── push-action.yml
     ├── push_and_rotate_image.yml
     ├── run_integration_test.yml
+    ├── unit_test_than_build_image.yml
     └── update_pr_description.yml
 ```
