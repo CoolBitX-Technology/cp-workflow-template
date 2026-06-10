@@ -1,14 +1,37 @@
 name: Assign Reviewers
 
-on: 
+on:
+  workflow_call:
   pull_request:
-    types: 
-      [ready_for_review, opened]
+    types: [ready_for_review, opened]
+
 jobs:
-  build:
+  assign:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
-      - name: Assign Reviewers to PR
-        uses: kentaro-m/auto-assign-action@v2.0.0
+      - name: Assign reviewers
+        uses: actions/github-script@v7
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const REVIEWERS = [
+              'and2352000',        // Aaron
+              'Dorac',             // Dora
+              'hankliu418',        // Hank Liu
+              'GinaYYoung',        // Gina
+              'hongyuCoolbitx',    // Hongyu
+              'suntsai-coolbitx',  // Sun
+            ];
+
+            const author = context.payload.pull_request.user.login.toLowerCase();
+            const reviewers = REVIEWERS.filter(r => r.toLowerCase() !== author);
+
+            if (reviewers.length === 0) return;
+
+            await github.rest.pulls.requestReviewers({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              reviewers,
+            });
