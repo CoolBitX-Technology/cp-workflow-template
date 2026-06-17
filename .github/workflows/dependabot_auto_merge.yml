@@ -1,0 +1,181 @@
+name: Dependabot Auto-merge
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        type: number
+        required: true
+      ci_conclusion:
+        type: string
+        required: true
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      GH_AUTO_MERGE_TOKEN:
+        required: true
+
+jobs:
+  analyze-and-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GH_AUTO_MERGE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create "ai-approved" \
+            --color "0e8a16" \
+            --description "Auto-approved by Claude" \
+            --repo "$GH_REPO" \
+            --force
+          gh label create "ai-skipped-major" \
+            --color "e4e669" \
+            --description "Major bump — needs manual review" \
+            --repo "$GH_REPO" \
+            --force
+          gh label create "ai-skipped-ci-failed" \
+            --color "d93f0b" \
+            --description "CI failed — needs manual review" \
+            --repo "$GH_REPO" \
+            --force
+
+      - name: Check if already processed
+        id: already-processed
+        env:
+          GH_TOKEN: ${{ secrets.GH_AUTO_MERGE_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ALREADY=$(gh pr view "$PR_NUMBER" \
+            --json labels \
+            --jq '[.labels[].name] | any(test("^ai-"))' \
+            --repo "$GH_REPO")
+          echo "skip=${ALREADY}" >> "$GITHUB_OUTPUT"
+
+      - name: Parse bump type
+        id: parse-bump
+        if: steps.already-processed.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GH_AUTO_MERGE_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          PR_DATA=$(gh pr view "$PR_NUMBER" \
+            --json title,body \
+            --repo "$GH_REPO")
+
+          cat > /tmp/parse-bump.js << 'EOF'
+          const data = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
+          const title = data.title;
+          const body = data.body || '';
+
+          function classifyBump(from, to) {
+            const f = from.replace(/[^\d.]/g, '').split('.').map(Number);
+            const t = to.replace(/[^\d.]/g, '').split('.').map(Number);
+            if ((t[0] || 0) > (f[0] || 0)) return 'major';
+            if ((t[1] || 0) > (f[1] || 0)) return 'minor';
+            return 'patch';
+          }
+
+          const packages = [];
+
+          // Single-package: title contains "from X.Y.Z to A.B.C"
+          const titleMatch = title.match(/from\s+([\d]+\.[\d]+\.[\d][\S]*)\s+to\s+([\d]+\.[\d]+\.[\d][\S]*)/i);
+          if (titleMatch) {
+            const nameMatch = title.match(/[Bb]ump\s+(.+?)\s+from/);
+            packages.push({
+              name: nameMatch ? nameMatch[1].trim() : 'dependency',
+              from: titleMatch[1],
+              to: titleMatch[2],
+              bump: classifyBump(titleMatch[1], titleMatch[2]),
+            });
+          } else {
+            // Grouped/monorepo: scan body table rows for version pairs
+            const rowRegex = /\|\s*\[?([^\]|]+)\]?[^|]*\|\s*`?([\d]+\.[\d]+\.[\d][\S]*?)`?\s*\|\s*`?([\d]+\.[\d]+\.[\d][\S]*?)`?\s*\|/g;
+            let m;
+            while ((m = rowRegex.exec(body)) !== null) {
+              const [, name, from, to] = m;
+              if (from !== to) {
+                packages.push({ name: name.trim(), from, to, bump: classifyBump(from, to) });
+              }
+            }
+          }
+
+          const order = ['major', 'minor', 'patch'];
+          const worstBump = packages.length === 0
+            ? 'unknown'
+            : packages.reduce((worst, pkg) => {
+                const wi = order.indexOf(worst);
+                const pi = order.indexOf(pkg.bump);
+                return pi !== -1 && (wi === -1 || pi < wi) ? pkg.bump : worst;
+              }, 'patch');
+
+          console.log(JSON.stringify({ packages, worst_bump: worstBump }));
+          EOF
+
+          ANALYSIS=$(echo "$PR_DATA" | node /tmp/parse-bump.js)
+          {
+            echo "analysis<<EOF_ANALYSIS"
+            echo "$ANALYSIS"
+            echo "EOF_ANALYSIS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Claude merge decision
+        if: steps.already-processed.outputs.skip == 'false'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GH_AUTO_MERGE_TOKEN }}
+          prompt: |
+            You are reviewing a Dependabot PR in repository ${{ github.repository }}.
+
+            PR number: ${{ inputs.pr_number }}
+            CI result: ${{ inputs.ci_conclusion }}
+            Bump analysis (pre-parsed by script — do not re-derive version numbers):
+            ${{ steps.parse-bump.outputs.analysis }}
+
+            Follow these steps before making a decision:
+
+            **Step 1 — Changelog analysis**
+            Fetch the full PR description:
+              gh pr view ${{ inputs.pr_number }} --json body --jq '.body' --repo ${{ github.repository }}
+            Read the changelog. For each package identify:
+            - Security fixes or CVE patches
+            - API changes, deprecations, or removals
+            - Breaking changes even if the bump type is minor or patch
+
+            **Step 2 — Codebase usage check**
+            For each updated package, find how it is used in this repository:
+              grep -r "<package-name>" . --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" -l 2>/dev/null
+            If the changelog mentions specific changed APIs (functions, methods, config options),
+            search for those names in the codebase as well.
+
+            **Step 3 — Make the merge decision**
+            Apply these rules in order:
+
+            1. If ci_conclusion is not "success":
+               - gh pr edit ${{ inputs.pr_number }} --add-label "ai-skipped-ci-failed" --repo ${{ github.repository }}
+               - Post a comment explaining that CI failed and manual review is needed.
+
+            2. Else if worst_bump is "major" or "unknown":
+               - gh pr edit ${{ inputs.pr_number }} --add-label "ai-skipped-major" --repo ${{ github.repository }}
+               - Post a comment listing which packages have major bumps and that manual review is needed for breaking changes.
+
+            3. Else if Step 1 or Step 2 reveals a HIGH RISK signal
+               (a breaking API change that is actively used in this repo, or a security vulnerability in a code path we depend on):
+               - gh pr edit ${{ inputs.pr_number }} --add-label "ai-skipped-major" --repo ${{ github.repository }}
+               - Post a comment explaining the specific risk found, which files are affected, and what to verify manually.
+
+            4. Else (patch or minor, CI green, no high-risk signals):
+               - gh pr edit ${{ inputs.pr_number }} --add-label "ai-approved" --repo ${{ github.repository }}
+               - gh pr review ${{ inputs.pr_number }} --approve --repo ${{ github.repository }}
+               - gh pr merge ${{ inputs.pr_number }} --auto --squash --repo ${{ github.repository }}
+               - Post a comment with a risk summary: what changed in the package, how it is used in this repo, and why it is safe to auto-merge.
+
+            Write all comments in English. Be concise but informative.

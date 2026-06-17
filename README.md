@@ -136,6 +136,54 @@ Builds and publishes a package to the public npmjs.org registry under `@coolbitx
 
 ---
 
+### `dependabot_auto_merge.yml`
+
+Analyzes Dependabot PRs and automatically approves and merges patch/minor bumps when CI is green. Skips merge (with an explanatory comment) for major bumps or CI failures.
+
+**How it works:**
+1. A script classifies each package bump as patch / minor / major from the PR title or body
+2. Claude reads the full Dependabot changelog and greps the codebase to assess risk
+3. Claude applies the label, approves, and merges — or leaves a comment explaining why it skipped
+
+**Labels applied (auto-created on first run):**
+- `ai-approved` — approved and queued for auto-merge
+- `ai-skipped-major` — major bump or high-risk signal; needs manual review
+- `ai-skipped-ci-failed` — CI failed; needs manual review
+
+**Required org-level secrets** (set once, apply to all caller repos):
+- `ANTHROPIC_API_KEY` — Anthropic API key (standard repo secret, not Dependabot secrets namespace)
+- `GH_AUTO_MERGE_TOKEN` — PAT with `pull-requests: write` and `contents: write` scopes
+
+**Required repo setting:** Enable auto-merge in each caller repo under Settings → General → Allow auto-merge.
+
+**Caller workflow** (add `.github/workflows/dependabot_auto_merge.yml` to each repo):
+
+```yaml
+name: Dependabot Auto-merge
+
+on:
+  workflow_run:
+    workflows: ["Push to branches action"]
+    types: [completed]
+    branches:
+      - 'dependabot/**'
+
+jobs:
+  auto-merge:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.pull_requests[0].number != 0
+    uses: CoolBitX-Technology/cp-workflow-template/.github/workflows/dependabot_auto_merge.yml@master
+    with:
+      pr_number: ${{ github.event.workflow_run.pull_requests[0].number }}
+      ci_conclusion: ${{ github.event.workflow_run.conclusion }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GH_AUTO_MERGE_TOKEN: ${{ secrets.GH_AUTO_MERGE_TOKEN }}
+```
+
+---
+
 ## Standalone Workflows
 
 | File | Trigger | Purpose |
