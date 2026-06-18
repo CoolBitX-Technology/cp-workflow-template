@@ -138,7 +138,7 @@ on:
 Benefits over triggering on `pull_request`:
 - Fires only after CI completes — no idle runner waiting
 - `github.event.workflow_run.conclusion` gives the CI result directly
-- Runs in default branch context → **`ANTHROPIC_API_KEY` and `GH_TOKEN` are regular org-level secrets** (not Dependabot secrets namespace)
+- Runs in default branch context → **`ANTHROPIC_API_KEY` and `GH_AUTO_MERGE_TOKEN` are regular org-level secrets** (not Dependabot secrets namespace)
 
 ### Caller `if` guard (double check)
 
@@ -165,7 +165,7 @@ jobs:
 | Secret | Where to set | Notes |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Org-level repository secret | NOT Dependabot secrets namespace |
-| `GH_TOKEN` | Org-level repository secret (PAT) | Needs `pull-requests: write`, `contents: write` |
+| `GH_AUTO_MERGE_TOKEN` | Org-level repository secret (PAT) | Needs `repo: all` |
 
 ### Files to create
 
