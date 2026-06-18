@@ -133,7 +133,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GH_AUTO_MERGE_TOKEN }}
           allowed_bots: 'dependabot[bot]'
-          allowed_tools: 'Bash(gh:*),Bash(grep:*)'
+          claude_args: '--allowedTools "Bash(gh:*)" "Bash(grep:*)"'
           prompt: |
             You are reviewing a Dependabot PR in repository ${{ github.repository }}.
 
