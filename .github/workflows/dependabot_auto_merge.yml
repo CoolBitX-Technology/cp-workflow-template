@@ -9,6 +9,10 @@ on:
       ci_conclusion:
         type: string
         required: true
+      ci_run_id:
+        type: string
+        required: false
+        default: ''
     secrets:
       ANTHROPIC_API_KEY:
         required: true
@@ -34,9 +38,9 @@ jobs:
             --description "Auto-approved by Claude" \
             --repo "$GH_REPO" \
             --force
-          gh label create "ai-skipped-major" \
+          gh label create "ai-skipped-needs-review" \
             --color "e4e669" \
-            --description "Major bump — needs manual review" \
+            --description "Needs manual review (major bump or high risk)" \
             --repo "$GH_REPO" \
             --force
           gh label create "ai-skipped-ci-failed" \
@@ -126,6 +130,99 @@ jobs:
             echo "EOF_ANALYSIS"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Write comment templates
+        if: steps.already-processed.outputs.skip == 'false'
+        run: |
+          mkdir -p /tmp/dependabot-templates
+
+          cat > /tmp/dependabot-templates/approved.md << 'TEMPLATE'
+          ## What Changed
+          | Field | Value |
+          |-------|-------|
+          | Package | {package name(s)} |
+          | From | {from version} |
+          | To | {to version} |
+          | Type | {MINOR or PATCH} |
+
+          {1–2 sentences summarising what this release contains, from the changelog}
+
+          ## Usage In This Repo
+          {For each file where this package is used, one line per call site:}
+          - `{filepath}` — `{MethodOrClass()}`: {one sentence on what it does in this codebase}
+
+          ## Risk Assessment
+          {LOW — for patch with no notable changes | MEDIUM — for minor with new APIs}
+
+          ## Positive Signals
+          {List only signals that actually apply, e.g.:}
+          - Patch release
+          - No breaking changes reported in changelog
+          - CI passed
+          - Changed APIs not used in this repo
+
+          ## Decision
+          ✅ Auto-approved and merged by Claude
+          TEMPLATE
+
+          cat > /tmp/dependabot-templates/needs-review.md << 'TEMPLATE'
+          ## What Changed
+          | Field | Value |
+          |-------|-------|
+          | Package | {package name(s)} |
+          | From | {from version} |
+          | To | {to version} |
+          | Type | {MAJOR or MINOR or PATCH} |
+
+          {2–4 sentences summarising the most important changes from the changelog, focusing on breaking changes, removed APIs, and migration notes}
+
+          ## Usage In This Repo
+          {For each file where this package is used, one line per call site:}
+          - `{filepath}` — `{MethodOrClass()}`: {one sentence on what it does in this codebase}
+
+          ## Risk Signals
+          {For each breaking change or high-risk signal matched to a call site above:}
+          - `{filepath}` — `{method()}`: {concise explanation of why this call site may be affected}
+
+          ## Risk Assessment
+          HIGH
+
+          ## Why This Needs A Human
+          {1–3 sentences explaining the specific reason: major version bump / breaking API change in use / security vulnerability / etc.}
+
+          ## How To Fix
+          - {step 1, e.g. "Read the migration guide at {URL from changelog}"}
+          - {step 2, e.g. "Check `{filepath}` — the `{method}` signature changed"}
+          {add more steps only if clearly identified from the changelog}
+
+          ## Decision
+          🟡 SKIPPED — Manual review required
+          TEMPLATE
+
+          cat > /tmp/dependabot-templates/ci-failed.md << 'TEMPLATE'
+          ## What Changed
+          | Field | Value |
+          |-------|-------|
+          | Package | {package name(s)} |
+          | From | {from version} |
+          | To | {to version} |
+          | Type | {MAJOR or MINOR or PATCH} |
+
+          {one sentence summarising what this release contains, from the changelog}
+
+          ## CI Failure
+          **Failed job:** {job name}
+          **Step:** {step name}
+          **Error:** {concise error message, max 3 lines}
+
+          ## How To Fix
+          - {actionable step 1 derived from the error}
+          - {actionable step 2}
+          {add more steps only if clearly needed}
+
+          ## Decision
+          ❌ SKIPPED — CI failed, manual review required
+          TEMPLATE
+
       - name: Claude merge decision
         if: steps.already-processed.outputs.skip == 'false'
         uses: anthropics/claude-code-action@9dd8b95a392eb34b6f5fb56cf5a64cb735912d4b # v1
@@ -133,51 +230,73 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GH_AUTO_MERGE_TOKEN }}
           allowed_bots: 'dependabot[bot]'
-          claude_args: '--allowedTools "Bash(gh:*)" "Bash(grep:*)"'
+          claude_args: '--allowedTools "Bash(gh:*)" "Bash(grep:*)" Read Write'
           prompt: |
             You are reviewing a Dependabot PR in repository ${{ github.repository }}.
 
             PR number: ${{ inputs.pr_number }}
             CI result: ${{ inputs.ci_conclusion }}
+            CI run ID: ${{ inputs.ci_run_id }}
             Bump analysis (pre-parsed by script — do not re-derive version numbers):
             ${{ steps.parse-bump.outputs.analysis }}
 
-            Follow these steps before making a decision:
+            == PHASE 1: GATHER DATA ==
 
-            **Step 1 — Changelog analysis**
-            Fetch the full PR description:
-              gh pr view ${{ inputs.pr_number }} --json body --jq '.body' --repo ${{ github.repository }}
-            Read the changelog. For each package identify:
-            - Security fixes or CVE patches
-            - API changes, deprecations, or removals
-            - Breaking changes even if the bump type is minor or patch
+            Step 1 — Fetch changelog (always run)
+            Run: gh pr view ${{ inputs.pr_number }} --json body --jq '.body' --repo ${{ github.repository }}
+            Identify: security fixes, API changes, deprecations, breaking changes.
 
-            **Step 2 — Codebase usage check**
-            For each updated package, find how it is used in this repository:
+            Step 2 — Fetch CI failure details (only if ci_conclusion is not "success" OR ci_run_id is empty)
+            2a. Get failed job and step names:
+              gh api repos/${{ github.repository }}/actions/runs/${{ inputs.ci_run_id }}/jobs \
+                --jq '.jobs[] | select(.conclusion == "failure") | {job: .name, failed_steps: [.steps[] | select(.conclusion == "failure") | .name]}'
+            2b. Get error messages from the failed log:
+              gh run view ${{ inputs.ci_run_id }} --log-failed --repo ${{ github.repository }} \
+                | grep -E "ERROR:|##\[error\]" | head -5
+
+            Step 3 — Check codebase usage (only if ci_conclusion is "success" AND ci_run_id is non-empty)
+            For each updated package run:
               grep -r "<package-name>" . --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" -l 2>/dev/null
-            If the changelog mentions specific changed APIs (functions, methods, config options),
-            search for those names in the codebase as well.
+            For each changed API or method mentioned in changelog, also run:
+              grep -r "<method-or-api-name>" . --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" -n 2>/dev/null
 
-            **Step 3 — Make the merge decision**
-            Apply these rules in order:
+            == PHASE 2: DECIDE ==
 
-            1. If ci_conclusion is not "success":
-               - gh pr edit ${{ inputs.pr_number }} --add-label "ai-skipped-ci-failed" --repo ${{ github.repository }}
-               - Post a comment explaining that CI failed and manual review is needed.
+            Apply these rules in order and stop at the first match:
 
-            2. Else if worst_bump is "major" or "unknown":
-               - gh pr edit ${{ inputs.pr_number }} --add-label "ai-skipped-major" --repo ${{ github.repository }}
-               - Post a comment listing which packages have major bumps and that manual review is needed for breaking changes.
+            Rule 1 — CI failed or CI run ID unavailable
+              Condition: ci_conclusion is not "success" OR ci_run_id is empty
+              Action:
+                - gh pr edit ${{ inputs.pr_number }} --add-label "ai-skipped-ci-failed" --repo ${{ github.repository }}
+                - Template: /tmp/dependabot-templates/ci-failed.md
+                - If ci_run_id was empty, set Failed job and Step to "N/A — CI run ID unavailable, check the Actions tab manually"
 
-            3. Else if Step 1 or Step 2 reveals a HIGH RISK signal
-               (a breaking API change that is actively used in this repo, or a security vulnerability in a code path we depend on):
-               - gh pr edit ${{ inputs.pr_number }} --add-label "ai-skipped-major" --repo ${{ github.repository }}
-               - Post a comment explaining the specific risk found, which files are affected, and what to verify manually.
+            Rule 2 — Major or unknown bump
+              Condition: worst_bump is "major" or "unknown"
+              Action:
+                - gh pr edit ${{ inputs.pr_number }} --add-label "ai-skipped-needs-review" --repo ${{ github.repository }}
+                - Template: /tmp/dependabot-templates/needs-review.md
 
-            4. Else (patch or minor, CI green, no high-risk signals):
-               - gh pr edit ${{ inputs.pr_number }} --add-label "ai-approved" --repo ${{ github.repository }}
-               - gh pr review ${{ inputs.pr_number }} --approve --repo ${{ github.repository }}
-               - gh pr merge ${{ inputs.pr_number }} --auto --squash --repo ${{ github.repository }}
-               - Post a comment with a risk summary: what changed in the package, how it is used in this repo, and why it is safe to auto-merge.
+            Rule 3 — High risk signal detected
+              Condition: Step 1 or Step 3 reveals a breaking API change actively used in this repo,
+                         or a security vulnerability in a code path we depend on
+              Action:
+                - gh pr edit ${{ inputs.pr_number }} --add-label "ai-skipped-needs-review" --repo ${{ github.repository }}
+                - Template: /tmp/dependabot-templates/needs-review.md
 
-            Write all comments in English. Be concise but informative.
+            Rule 4 — Safe to merge
+              Condition: patch or minor, CI green, no high-risk signals
+              Action:
+                - gh pr edit ${{ inputs.pr_number }} --add-label "ai-approved" --repo ${{ github.repository }}
+                - gh pr review ${{ inputs.pr_number }} --approve --repo ${{ github.repository }}
+                - gh pr merge ${{ inputs.pr_number }} --auto --squash --repo ${{ github.repository }}
+                - Template: /tmp/dependabot-templates/approved.md
+
+            == PHASE 3: WRITE COMMENT ==
+
+            1. Read the template file for your matched rule using the Read tool.
+            2. Fill in every {placeholder} with the actual data gathered in Phase 1.
+               Do not add or remove sections. Write all content in English.
+            3. Write the filled comment to /tmp/comment-output.md using the Write tool.
+            4. Post the comment:
+               gh pr comment ${{ inputs.pr_number }} --body-file /tmp/comment-output.md --repo ${{ github.repository }}
