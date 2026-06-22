@@ -246,15 +246,17 @@ jobs:
             Run: gh pr view ${{ inputs.pr_number }} --json body --jq '.body' --repo ${{ github.repository }}
             Identify: security fixes, API changes, deprecations, breaking changes.
 
-            Step 2 — Fetch CI failure details (only if ci_conclusion is not "success" OR ci_run_id is empty)
+            Step 2 — Fetch CI failure details (only if ci_conclusion is not "success" AND ci_run_id is non-empty)
             2a. Get failed job and step names:
               gh api repos/${{ github.repository }}/actions/runs/${{ inputs.ci_run_id }}/jobs \
                 --jq '.jobs[] | select(.conclusion == "failure") | {job: .name, failed_steps: [.steps[] | select(.conclusion == "failure") | .name]}'
             2b. Get error messages from the failed log:
               gh run view ${{ inputs.ci_run_id }} --log-failed --repo ${{ github.repository }} \
                 | grep -E "ERROR:|##\[error\]" | head -5
+            If ci_run_id is empty and ci_conclusion is not "success", skip Step 2 and set
+            Failed job, Step, and Error in the comment to "N/A — CI run ID unavailable, check CI provider directly".
 
-            Step 3 — Check codebase usage (only if ci_conclusion is "success" AND ci_run_id is non-empty)
+            Step 3 — Check codebase usage (only if ci_conclusion is "success")
             For each updated package run:
               grep -r "<package-name>" . --include="*.ts" --include="*.js" --include="*.tsx" --include="*.jsx" -l 2>/dev/null
             For each changed API or method mentioned in changelog, also run:
@@ -264,12 +266,11 @@ jobs:
 
             Apply these rules in order and stop at the first match:
 
-            Rule 1 — CI failed or CI run ID unavailable
-              Condition: ci_conclusion is not "success" OR ci_run_id is empty
+            Rule 1 — CI failed
+              Condition: ci_conclusion is not "success"
               Action:
                 - gh pr edit ${{ inputs.pr_number }} --add-label "ai-skipped-ci-failed" --repo ${{ github.repository }}
                 - Template: /tmp/dependabot-templates/ci-failed.md
-                - If ci_run_id was empty, set Failed job and Step to "N/A — CI run ID unavailable, check the Actions tab manually"
 
             Rule 2 — Major or unknown bump
               Condition: worst_bump is "major" or "unknown"
