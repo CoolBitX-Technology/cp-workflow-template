@@ -230,8 +230,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GH_AUTO_MERGE_TOKEN }}
           allowed_bots: 'dependabot[bot]'
-          model: 'claude-sonnet-4-6'
-          claude_args: '--allowedTools "Bash(gh:*)" "Bash(grep:*)" Read Write'
+          claude_args: '--model claude-sonnet-4-6 --allowedTools "Bash(gh:*)" "Bash(grep:*)" Read Write'
           prompt: |
             You are reviewing a Dependabot PR in repository ${{ github.repository }}.
 
