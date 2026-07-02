@@ -16,12 +16,14 @@ jobs:
         with:
           script: |
             const REVIEWERS = [
-              'and2352000',        // Aaron
               'Dorac',             // Dora
               'hankliu418',        // Hank Liu
-              'GinaYYoung',        // Gina
               'hongyuCoolbitx',    // Hongyu
               'suntsai-coolbitx',  // Sun
+              'a0979470582',       // Kim Lai
+              'jin860315',         // Jenny
+              'KevinLee-097',      // Kevin Lee
+              'coolbitxColma',     // Colma
             ];
 
             const author = context.payload.pull_request.user.login.toLowerCase();
