@@ -18,11 +18,9 @@ jobs:
             const REVIEWERS = [
               'Dorac',             // Dora
               'hankliu418',        // Hank Liu
-              'hongyutseng',       // Hongyu
               'bu0304',            // Kim Lai
               'jin860315',         // Jenny
-              'KevinLee-097',      // Kevin Lee
-              'coolbitxColma',     // Colma
+              'Rickuan',           // Kuan
             ];
 
             const author = context.payload.pull_request.user.login.toLowerCase();
