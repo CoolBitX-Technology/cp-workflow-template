@@ -199,9 +199,10 @@ jobs:
 
 **行為：**
 - `head` 沒有 `base` 缺少的 commit → skip
+- 已經有開著的 PR → 直接更新它的 body（不論 `create_pr` 是什麼）
 - 沒有開著的 PR，且 `create_pr: false` → skip
 - 沒有開著的 PR，且 `create_pr: true` → 開新 PR，標題為 `release: <head_branch> -> <base_branch> (YYYY-MM-DD)`，日期為台北時間（reviewer 請由 caller repo 的 `assign_reviewers.yml` 在 PR opened 時指定）
-- 最後一定會用目前已 merge 的 PR 列表覆蓋 PR body
+- 找到或開了 PR 時，會用目前已 merge 的 PR 列表整份覆蓋 PR body；skip 的情況不會動到 body
 
 同一個 repo + branch 組合的 run 會依序執行（`concurrency` 排隊、不取消），排程和 push 同時觸發時不會重複開 PR，較舊的 run 也不會蓋掉較新的 body。GitHub 每個 group 只保留一個等待中的 run，極少數情況下等待中的排程 run 會被後來的 push run 取代，這時 PR 要等下次排程或手動觸發才會開。
 
@@ -213,7 +214,7 @@ jobs:
 | `base_branch` | string | `master` | 目標 branch |
 | `create_pr` | boolean | `true` | 沒有開著的 PR 時是否開新 PR。caller 傳 `${{ github.event_name != 'push' }}`，push 觸發時就只更新 body |
 
-**必要 secret：** `PERSONAL_ACCESS_TOKEN`。請使用只授權給目標 repo 的 **fine-grained PAT**，權限為 `Pull requests: write` 和 `Contents: read`。不能用 `GITHUB_TOKEN`，因為它開的 PR 不會觸發其他 workflow。
+**必要 secret：** `PERSONAL_ACCESS_TOKEN`。可以用只授權給目標 repo 的 **fine-grained PAT**（權限為 `Pull requests: write` 和 `Contents: read`），或有 `repo` scope 的 **classic PAT**。caller 可以把 repo 裡既有的 token 對應過來，例如 `PERSONAL_ACCESS_TOKEN: ${{ secrets.COOLWALLET_TEAM_GH_RELEASE }}`。release PR 的作者會是 token 的擁有者。不能用 `GITHUB_TOKEN`，因為它開的 PR 不會觸發其他 workflow。
 
 **PR body 格式：**
 ```markdown

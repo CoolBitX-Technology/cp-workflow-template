@@ -17,7 +17,7 @@ on:
       PERSONAL_ACCESS_TOKEN:
         required: true
 
-# GITHUB_TOKEN 只給 actions/checkout 用；所有 PR 讀寫都走 PAT。
+# GITHUB_TOKEN 只給 actions/checkout 和之後的 git fetch 用；所有 PR 讀寫都走 PAT。
 permissions:
   contents: read
 
@@ -80,7 +80,8 @@ jobs:
         run: |
           # 兩種合併方式都抓：merge commit 的標題是 `Merge pull request #N from ...`，
           # squash 的標題結尾是 `(#N)`（例如 dependabot 自動合併的 PR）。
-          # awk 去除重複的編號。grep 沒有 match 時會 exit 1，加 `|| true` 避免 step 中止。
+          # awk 去除重複的編號。pipeline 的結束碼取最後的 awk（預設 shell 是 `bash -e`，沒開 pipefail），
+          # 所以 grep 沒有 match 時的 exit 1 不會中止 step；`|| true` 只是保險。
           PR_NUMS=$(git log --reverse --pretty='%s' "$RANGE" \
             | grep -oP '^Merge pull request #\K[0-9]+|\(#\K[0-9]+(?=\)$)' \
             | awk '!seen[$0]++' || true)

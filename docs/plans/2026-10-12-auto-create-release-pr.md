@@ -68,8 +68,8 @@ PR body 若只在「開 PR 當下」生成，之後新 merge 進 dev 的 PR 就�
 3. 找不到：
    - `create_pr: false` → skip（push 觸發，等排程開 PR）
    - `create_pr: true` → `gh pr create`（標題日期用台北時間 `TZ=Asia/Taipei`；body 留空，第 5 步填入）。PAT 開的 PR 會觸發 caller 的 `pull_request: opened`，reviewer 由 `assign_reviewers.yml` 指定
-4. `git log --reverse --pretty='%s' origin/{base}..origin/{head}` → 以 `^Merge pull request #\K[0-9]+`（merge commit）或 `\(#\K[0-9]+(?=\)$)`（squash，如 dependabot）抓 PR numbers，`awk` 去重（`|| true`：grep 無 match 時 exit 1，避免 step 中止）
-5. 每個 PR number 寫成一行 `- #N`（GitHub 畫面上會自動展開成圖示 + 標題，不另外查標題），組成 body，`gh pr edit --body` 覆蓋；沒有任何 PR 時顯示 `_No merged PRs yet._`
+4. `git log --reverse --pretty='%s' origin/{base}..origin/{head}` → 以 `^Merge pull request #\K[0-9]+`（merge commit）或 `\(#\K[0-9]+(?=\)$)`（squash，如 dependabot）抓 PR numbers，`awk` 去重（pipeline 結束碼取最後的 `awk`，預設 `bash -e` 沒開 pipefail，grep 無 match 不會中止 step；`|| true` 只是保險）
+5. 每個 PR number 寫成一行 `- #N`（GitHub 畫面上會自動展開成圖示 + 標題，不另外查標題），組成 body，用 REST `gh api -X PATCH /repos/{repo}/pulls/{number}` 覆蓋（不用 `gh pr edit`：它走 GraphQL 會查 reviewer team，只有 `repo` scope 的 classic PAT 缺 `read:org` 會失敗）；沒有任何 PR 時顯示 `_No merged PRs yet._`
 
 **Concurrency：** group 為 `release-pr-{repo}-{head}-{base}`，`cancel-in-progress: false`。排程與 push 可能同時觸發；若取消，被取消的可能正是要開 PR 的那個 run。排隊執行也避免舊 run 晚完成、用舊列表覆蓋 body。限制：GitHub 每個 group 只保留一個等待中的 run，前一個 run 還在跑、排程 run 正在等待時又有 push 進來，排程 run 會被取代，PR 要等下次排程或手動觸發才會開（機率很低）。
 
@@ -150,7 +150,9 @@ sequenceDiagram
         RW->>GH: gh pr list --head dev --base master --state open
         GH-->>RW: open PRs
 
-        alt no open PR and create_pr = false
+        alt open PR exists
+            Note over RW: reuse its number
+        else no open PR and create_pr = false
             RW-->>Caller: skip
         else no open PR and create_pr = true
             RW->>GH: gh pr create (no body)
@@ -177,15 +179,16 @@ sequenceDiagram
 ## 8. Testing strategy
 
 - **Unit tests**: 無（GitHub Actions YAML 無標準 unit test 框架）
-- **Manual verification**（在測試 repo 用 `test-dev` / `test-master` 當 head/base，caller 以 `@<feature branch>` 引用）:
-  1. **Case A（skip—no commits）**: head == base，`create_pr: true` 觸發 → job 輸出 skip，無 PR 被開
-  2. **Case B（push, no PR）**: head 有新 merge commit、無開著的 PR，`create_pr: false` 觸發 → job 正常結束，不開 PR
-  3. **Case C（create PR）**: `create_pr: true` 觸發 → PR 被開，同一個 run 內 body 即填入 PR list
-  4. **Case D（PR exists）**: 再次 `create_pr: true` 觸發 → 不開第二個 PR，body 更新
-  5. **Case E（update body on push）**: 再 merge 一個 PR 進 head，`create_pr: false` 觸發 → body 多出該 PR
-  6. **Case F（reviewer 指定）**: 新開的 PR 觸發 caller 的 `assign_reviewers.yml`，reviewer 被指定
-  7. **Case G（squash）**: squash 合併一個 PR 進 head（標題結尾 `(#N)`）→ body 列出該 PR
-- **Not tested**: 排程觸發（合入 caller default branch 後由時間驗證）；rebase merge（明確 out of scope）
+- **Manual verification**（2026-10-19 在 `CoolBitX-Technology/brian-test` 執行）：用 `test/release-head` / `test/release-base` 當 head/base，暫時的 caller 以 `@feat/CW-29348-auto-create-release-pr` 引用，token 為 org secret `COOLWALLET_TEAM_GH_RELEASE`（classic PAT，`repo` scope）。排程只在 default branch 觸發，所以用 commit 訊息含 `[create-pr]` 代表 `create_pr: true`，其他 push 為 `false`：
+  1. ✅ **Case A（skip—no commits）**: head == base，`create_pr: true` 觸發 → job 輸出 skip，無 PR 被開
+  2. ✅ **Case B（push, no PR）**: head 有新 merge commit、無開著的 PR，`create_pr: false` 觸發 → job 正常結束，不開 PR
+  3. ✅ **Case C（create PR）**: `create_pr: true` 觸發 → PR 被開，同一個 run 內 body 即填入 PR list（第一次因 `gh pr edit` 需要 `read:org` 失敗，改用 REST 後通過；之後關掉 PR 重開，同一個 run 內開出 brian-test#94 並填好 body）
+  4. ✅ **Case D（PR exists）**: 再次 `create_pr: true` 觸發 → 不開第二個 PR，body 更新
+  5. ✅ **Case E（update body on push）**: 再 merge 一個 PR 進 head，`create_pr: false` 觸發 → body 多出該 PR
+  6. ⬜ **Case F（reviewer 指定）**: 新開的 PR 觸發 caller 的 `assign_reviewers.yml`，reviewer 被指定（未測：brian-test 沒有 `assign_reviewers.yml`）
+  7. ✅ **Case G（squash）**: squash 合併一個 PR 進 head（標題結尾 `(#N)`）→ body 列出該 PR
+  8. ✅ **Body 顯示**: 每行只寫 `- #N`，brian-test#94 上每個 PR 的標題只顯示一次
+- **Not tested**: Case F；排程觸發（合入 caller default branch 後由時間驗證）；rebase merge（明確 out of scope）
 
 ## 9. Risks & open questions
 
@@ -199,10 +202,11 @@ sequenceDiagram
 ## 10. Done criteria
 
 - [ ] `feat/CW-29348-auto-create-release-pr` PR 通過 review、合入 master
-- [ ] CI（assign_reviewers）在 template repo 端 green
-- [ ] Case A–G 手動驗證通過
-- [ ] README 含使用說明與 caller 範例
-- [ ] README 說明支援的合併方式、PAT 最小權限、`create_pr` 寫法、需移除其他改寫 body 的 workflow
+- [x] template repo 的 CI 失敗與本 PR 無關（`Push to branches action` 等在 master 上同樣失敗）
+- [x] Case A–E、G 手動驗證通過（brian-test）
+- [ ] Case F 在實際 caller repo 接上後確認 reviewer 被指定
+- [x] README 含使用說明與 caller 範例
+- [x] README 說明支援的合併方式、PAT 最小權限、`create_pr` 寫法、需移除其他改寫 body 的 workflow
 
 ---
 
@@ -212,12 +216,13 @@ sequenceDiagram
 - 2026-10-12 — 已有開著的 PR → 完全覆蓋 body（不 append、不加 comment）
 - 2026-10-12 — ~~全用 `github-script` 實作，不依賴 `gh` CLI 或額外 action~~ → 2026-10-16 改用 `gh` CLI + `git log`（runner 內建 `gh`，script 較短）
 - 2026-10-16 — ~~拆成兩個 workflow：`auto_create_release_pr`（開 PR）+ `update_release_pr_body`（更新 body）~~ → 2026-10-19 合併為 `release_pr.yml`（見 Alternative D）
-- 2026-10-16 — Body 生成改用 git log（PR numbers）+ GitHub API（PR titles）混合方式。原因：git log `--merges` 可靠抓 PR number 不需 N+1 API；`gh pr view` 取準確 title；caller repo 確認使用 merge commit 策略
+- 2026-10-16 — ~~Body 生成改用 git log（PR numbers）+ GitHub API（PR titles）混合方式。原因：git log `--merges` 可靠抓 PR number 不需 N+1 API；`gh pr view` 取準確 title；caller repo 確認使用 merge commit 策略~~ → 2026-10-19 改為只寫 `#N`、不查標題，並支援 squash（見下方）
 - 2026-10-19 — Review 修正：grep 無 match 時不再讓 job 失敗；reviewers/labels 改為開 PR 後非致命套用；收斂 `permissions: contents: read`
 - 2026-10-19 — 合併為單一 `release_pr.yml`，以 `create_pr` input 區分「可開 PR」與「只更新 body」；每次 run 結尾都重建 body，新 PR 開出即有 body；concurrency 改為排隊不取消，避免取消掉負責開 PR 的 run
 - 2026-10-19 — 移除 `reviewers` / `labels` input：現有 caller 都用 `assign_reviewers.yml` 指定 reviewer，也沒有用 label；保留只會和 `assign_reviewers.yml` 重複指定
 - 2026-10-19 — 移除 `pr_title` / `draft` input：現有 caller 都用預設標題格式（與 cp-node-graphql-endpoint 現行 `release: dev -> master (日期)` 一致）、也都直接開一般 PR；標題固定為 `release: <head> -> <base> (YYYY-MM-DD)`
 - 2026-10-19 — 拆成 `Find or create release PR` / `Update release PR body` 兩個 step，以 step output 傳 PR 編號；PAT 只放在這兩個 step 的 env，不放 job 層
 - 2026-10-19 — Re-review 修正：squash 合併的 PR（標題結尾 `(#N)`）也列入 body（cp-node-graphql-endpoint 的 dependabot PR 以 squash 自動合併）；沒有 PR 時 body 顯示 `_No merged PRs yet._`；標題日期改用台北時間；concurrency 註解補上「等待中的 run 會被取代」的限制；README 提醒移除其他改寫 body 的 workflow
-- 2026-10-19 — body 每行改為 `- 標題 (#N)`：列表項目開頭的 `#N` 會被 GitHub 展開成含標題的連結，原本的 `- #N 標題` 會讓標題顯示兩次（brian-test#94 上發現）
+- 2026-10-19 — 更新 body 改用 REST `gh api -X PATCH`，不用 `gh pr edit` / `gh pr view`：後者走 GraphQL，會順帶查 reviewer team 等欄位，只有 `repo` scope 的 classic PAT（brian-test 用的 `COOLWALLET_TEAM_GH_RELEASE`）因缺 `read:org` 失敗。brian-test Case C 實測發現
+- 2026-10-19 — ~~body 每行改為 `- 標題 (#N)`：列表項目開頭的 `#N` 會被 GitHub 展開成含標題的連結，原本的 `- #N 標題` 會讓標題顯示兩次（brian-test#94 上發現）~~ → 同日改為只寫 `- #N`（見下一條）
 - 2026-10-19 — body 每行改為只寫 `- #N`，不再查 PR 標題：實測 `- 標題 (#N)` 的 `#N` 不論在列表的哪個位置都會被 GitHub 展開成含標題的連結，標題仍重複顯示（brian-test#94）。改為只寫編號後，標題由 GitHub 顯示，也省掉每個 PR 一次的 API 呼叫
