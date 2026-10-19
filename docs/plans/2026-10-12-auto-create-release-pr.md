@@ -1,5 +1,5 @@
 ---
-status: draft
+status: in-progress
 owner: Jenny Hsiao
 created: 2026-10-12
 clickup: CW-29348
@@ -7,7 +7,7 @@ clickup: CW-29348
 
 # Plan: Auto Create Release PR Reusable Workflow
 
-> 🟡 Draft — Awaiting approval to implement
+> 🟠 In Progress — PR #56 open, pending review and merge
 
 ## 1. Goal
 
