@@ -204,7 +204,8 @@ Separating the two means the PR body stays current every time a PR lands on `dev
 **Behaviour:**
 - `head` == `base` (no new commits) → skip
 - Open PR already exists → skip (body is managed by `update_release_pr_body`)
-- No open PR → create one (body starts empty; `update_release_pr_body` fills it in)
+- No open PR → create one (body starts empty; chain `update_release_pr_body` right after it in the caller — see [Caller example](#caller-example) — so the body is filled immediately instead of waiting for the next push to `dev`)
+- Reviewers / labels are applied after the PR is created; a failure there emits a warning instead of failing the job
 
 **Inputs:**
 
@@ -213,7 +214,7 @@ Separating the two means the PR body stays current every time a PR lands on `dev
 | `head_branch` | string | `dev` | Source branch |
 | `base_branch` | string | `master` | Target branch |
 | `pr_title` | string | `release: <head_branch> -> <base_branch> (YYYY-MM-DD)` | PR title |
-| `reviewers` | string | `` | Comma-separated GitHub usernames (new PRs only) |
+| `reviewers` | string | `` | Comma-separated GitHub usernames (new PRs only). Do not include the PAT owner — they are the PR author, and GitHub rejects authors as reviewers |
 | `labels` | string | `` | Comma-separated label names (new PRs only) |
 | `draft` | boolean | `false` | Open as draft PR |
 
@@ -254,7 +255,7 @@ Separating the two means the PR body stays current every time a PR lands on `dev
 
 Add **two** workflow files to the caller repo:
 
-**`.github/workflows/create_release_pr.yml`** — opens the PR on a schedule:
+**`.github/workflows/create_release_pr.yml`** — opens the PR on a schedule, then fills its body right away:
 
 ```yaml
 name: Create Release PR
@@ -270,9 +271,18 @@ jobs:
     with:
       head_branch: dev
       base_branch: master
-
       reviewers: 'github-username-a,github-username-b'
       labels: 'release'
+    secrets:
+      PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+  # Without this job a freshly opened PR keeps an empty body until the next push to dev.
+  update-body:
+    needs: create
+    uses: CoolBitX-Technology/cp-workflow-template/.github/workflows/update_release_pr_body.yml@master
+    with:
+      head_branch: dev
+      base_branch: master
     secrets:
       PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 ```

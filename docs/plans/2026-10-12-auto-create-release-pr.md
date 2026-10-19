@@ -61,29 +61,29 @@ PR body 若只在「開 PR 當下」生成，之後新 merge 進 dev 的 PR 就�
 
 ### Workflow 1：`auto_create_release_pr.yml`（開 PR）
 
-純 `github-script`，不需要 checkout。
+`actions/checkout`（fetch-depth: 0）+ `gh` CLI（PAT 經 `GH_TOKEN`）。
 
 **步驟：**
-1. `GET /compare/{base}...{head}` → `ahead_by == 0` → skip
-2. `GET /pulls?state=open&head={owner}:{head}&base={base}` → 已有 PR → skip（不重開）
-3. `POST /pulls` 開新 PR（body 暫時留空，由 workflow 2 填）
-4. 若有 reviewers/labels → `requestReviewers` / `addLabels`
+1. `git log origin/{base}..origin/{head}` 為空 → skip
+2. `gh pr list --head {head} --base {base} --state open` → 已有 PR → skip（不重開）
+3. `gh pr create` 開新 PR（body 暫時留空，由 workflow 2 填）
+4. 若有 reviewers/labels → 開 PR 之後各自 `gh pr edit --add-reviewer` / `--add-label`；失敗只發 `::warning::`，不讓 job 失敗（PR 已存在，之後的 run 都會 skip，job 紅了也不會重試）
+5. Caller 在同一個 workflow 以 `needs:` 接 `update_release_pr_body`，讓新 PR 立刻有 body
 
 ### Workflow 2：`update_release_pr_body.yml`（更新 body）
 
-需要 `actions/checkout`（fetch-depth: 0）+ `github-script`。
+需要 `actions/checkout`（fetch-depth: 0）+ `gh` CLI。Job 設 `concurrency`（`cancel-in-progress`），避免連續 push 時舊的 run 晚完成、用舊列表覆蓋 body。
 
 **Inputs：** `head_branch`（預設 `dev`）、`base_branch`（預設 `master`）
 
 **步驟：**
 1. checkout
-2. `git log --merges --reverse --grep='Merge pull request #' --pretty='%s' origin/{base}..origin/{head}` → 抓 PR numbers
+2. `git log --merges --reverse --grep='Merge pull request #' --pretty='%s' origin/{base}..origin/{head}` → 以 `^Merge pull request #\K[0-9]+` 抓 PR numbers（`|| true`：grep 無 match 時 exit 1，預設 `bash -e` 會直接中止）
 3. 無 merge commit → skip（輸出 info，正常結束）
-4. 對每個 PR number 呼叫 `GET /pulls/{number}` 取 title（parallel `Promise.all`）
-5. 組成 body（`- #number title` 格式）
-6. `GET /pulls?state=open&head={owner}:{head}&base={base}` 找開著的 release PR
-7. 找不到 → skip（PR 尚未建立，等排程跑）
-8. 找到 → `PATCH /pulls/{number}` 覆蓋 body
+4. `gh pr list --head {head} --base {base} --state open` 找開著的 release PR
+5. 找不到 → skip（PR 尚未建立，等排程跑）
+6. 對每個 PR number 循序 `gh pr view` 取 title；失敗時填 `(title unavailable)`
+7. 組成 body（`- #number title` 格式），`gh pr edit --body` 覆蓋
 
 ### Body 格式
 
@@ -101,7 +101,7 @@ PR body 若只在「開 PR 當下」生成，之後新 merge 進 dev 的 PR 就�
 
 - git log `--merges --grep='Merge pull request #'`：可靠抓到 PR number，不依賴 commit body 格式，不需 N+1 API 呼叫
 - GitHub API `GET /pulls/{number}`：取得準確的 PR title（比解析 git log body 穩定）
-- `Promise.all` 並行取 title：PR 數量通常 < 50，不會觸發 rate limit
+- 循序 `gh pr view` 取 title：PR 數量通常 < 50，不會觸發 rate limit
 
 ## 5. Alternatives considered
 
@@ -126,7 +126,7 @@ graph TD
     A["Caller: schedule / dispatch"] -->|workflow_call| B["auto_create_release_pr.yml"]
     C["Caller: push to dev"] -->|workflow_call| D["update_release_pr_body.yml"]
 
-    B -->|"ahead_by == 0"| E[Skip]
+    B -->|"no new commits"| E[Skip]
     B -->|"open PR exists"| E
     B -->|"no open PR"| F[Create PR]
 
@@ -134,7 +134,7 @@ graph TD
     D -->|"no open PR"| E
     D -->|"open PR found"| G[Overwrite body]
 
-    F -.->|PR created| G
+    F -->|"caller job: needs create"| D
 ```
 
 ### Sequence: auto_create_release_pr
@@ -147,22 +147,21 @@ sequenceDiagram
 
     Caller->>RW: workflow_call (head, base, title, ...)
 
-    RW->>GH: GET /compare/{base}...{head}
-    GH-->>RW: { ahead_by }
+    RW->>RW: git log origin/master..origin/dev
 
-    alt ahead_by == 0
+    alt no new commits
         RW-->>Caller: skip
-    else ahead_by > 0
-        RW->>GH: GET /pulls?state=open&head=dev&base=master
+    else has new commits
+        RW->>GH: gh pr list --head dev --base master --state open
         GH-->>RW: open PRs
 
         alt open PR exists
             RW-->>Caller: skip (already open)
         else no open PR
-            RW->>GH: POST /pulls (no body)
+            RW->>GH: gh pr create (no body)
             GH-->>RW: new PR
-            opt reviewers / labels
-                RW->>GH: requestReviewers / addLabels
+            opt reviewers / labels (failure = warning only)
+                RW->>GH: gh pr edit --add-reviewer / --add-label
             end
             RW-->>Caller: done
         end
@@ -187,19 +186,18 @@ sequenceDiagram
     alt no merge commits
         RW-->>Caller: skip
     else has PRs
-        par for each PR number
-            RW->>GH: GET /pulls/{number}
-            GH-->>RW: { title }
-        end
-        Note over RW: build body
-
-        RW->>GH: GET /pulls?state=open&head=dev&base=master
+        RW->>GH: gh pr list --head dev --base master --state open
         GH-->>RW: open PRs
 
         alt no open PR
             RW-->>Caller: skip
         else open PR found
-            RW->>GH: PATCH /pulls/{number} (overwrite body)
+            loop for each PR number
+                RW->>GH: gh pr view {number}
+                GH-->>RW: { title }
+            end
+            Note over RW: build body
+            RW->>GH: gh pr edit {number} --body (overwrite)
             RW-->>Caller: done
         end
     end
@@ -207,7 +205,7 @@ sequenceDiagram
 
 ## 7. PR Breakdown
 
-### PR 1: Add both reusable workflows + README — ~280 lines
+### PR 1: Add both reusable workflows + README — ~500 lines
 - **Category**: Feature
 - **Branch**: `feat/CW-29348-auto-create-release-pr`
 - **Goal**: 兩個 workflow 合入一個 PR，因為 `update_release_pr_body` 的 caller 範例需要對照 `auto_create_release_pr` 才有意義
@@ -259,7 +257,8 @@ sequenceDiagram
 
 - 2026-10-12 — PAT secret 沿用 `PERSONAL_ACCESS_TOKEN`（與現有 `run_integration_test.yml` 一致）
 - 2026-10-12 — 已有開著的 PR → 完全覆蓋 body（不 append、不加 comment）
-- 2026-10-12 — 全用 `github-script` 實作，不依賴 `gh` CLI 或額外 action
+- 2026-10-12 — ~~全用 `github-script` 實作，不依賴 `gh` CLI 或額外 action~~ → 2026-10-16 改用 `gh` CLI + `git log`（runner 內建 `gh`，script 較短）
 - 2026-10-16 — 拆成兩個 workflow：`auto_create_release_pr`（開 PR）+ `update_release_pr_body`（更新 body）。原因：單一 workflow 無法在新 PR merge 進 dev 時即時更新 body
 - 2026-10-16 — Body 生成改用 git log（PR numbers）+ GitHub API（PR titles）混合方式。原因：git log `--merges` 可靠抓 PR number 不需 N+1 API；API `GET /pulls/{number}` 取準確 title；caller repo 確認使用 merge commit 策略
 - 2026-10-16 — `auto_create_release_pr` 開 PR 時不帶 body（留空），由 `update_release_pr_body` 負責填入
+- 2026-10-19 — Review 修正：`update_release_pr_body` grep 無 match 時不再讓 job 失敗；加 `concurrency` 防覆蓋 race；reviewers/labels 改為開 PR 後非致命套用；caller 範例以 `needs:` 串接 body 更新；兩個 workflow 收斂 `permissions: contents: read`

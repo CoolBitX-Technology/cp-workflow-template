@@ -13,9 +13,18 @@ on:
       PERSONAL_ACCESS_TOKEN:
         required: true
 
+# GITHUB_TOKEN is only used by actions/checkout; all PR reads/writes go through the PAT.
+permissions:
+  contents: read
+
 jobs:
   update-release-pr-body:
     runs-on: ubuntu-latest
+    # Back-to-back pushes to head_branch would otherwise race, and an older run
+    # finishing last overwrites the body with a stale PR list.
+    concurrency:
+      group: update-release-pr-body-${{ github.repository }}-${{ inputs.head_branch }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,11 +38,13 @@ jobs:
         run: |
           git fetch origin "$HEAD_BRANCH" "$BASE_BRANCH" --quiet
 
+          # `|| true`: grep exits 1 on no match, and the default `bash -e` shell
+          # would abort here instead of reaching the skip branch below.
           PR_NUMS=$(git log --merges --reverse \
             --grep='Merge pull request #' \
             --pretty='%s' \
-            origin/$BASE_BRANCH..origin/$HEAD_BRANCH \
-            | grep -oP '#\K[0-9]+')
+            "origin/$BASE_BRANCH..origin/$HEAD_BRANCH" \
+            | grep -oP '^Merge pull request #\K[0-9]+' || true)
 
           if [ -z "$PR_NUMS" ]; then
             echo "No merge commits found between $BASE_BRANCH and $HEAD_BRANCH. Skipping."
