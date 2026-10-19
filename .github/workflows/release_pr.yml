@@ -24,6 +24,7 @@ permissions:
 jobs:
   release-pr:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # 排隊而不取消：同一時間只有一個 run 在跑，較舊的 run 不會晚完成、用舊列表覆蓋 body；
     # 執行中的 run 也不會被後來的 run 取消。
     # 限制：GitHub 每個 group 只保留一個等待中的 run，有更新的 run 進來時，等待中的會被取消。
