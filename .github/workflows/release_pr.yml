@@ -50,8 +50,6 @@ jobs:
           GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           CREATE_PR: ${{ inputs.create_pr }}
         run: |
-          git fetch origin "$HEAD_BRANCH" "$BASE_BRANCH" --quiet
-
           if [ -z "$(git log "$RANGE" --oneline)" ]; then
             echo "No new commits between $HEAD_BRANCH and $BASE_BRANCH. Skipping."
             exit 0
