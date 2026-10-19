@@ -34,7 +34,7 @@ PR body 若只在「開 PR 當下」生成，之後新 merge 進 dev 的 PR 就�
   - [ ] 無新 commit（head == base）時 skip，job 正常結束
   - [ ] 找開著的 head→base PR；沒有且 `create_pr: false` → skip
   - [ ] 沒有且 `create_pr: true` → 開新 PR
-  - [ ] `git log --merges` 抓 PR numbers（merge commit 策略），`gh pr view` 取 title，覆蓋 body
+  - [ ] `git log` 從 commit 標題抓 PR numbers（merge commit 與 squash 皆支援），`gh pr view` 取 title，覆蓋 body
   - [ ] Job 層 `concurrency`（排隊、不取消）
   - [ ] Inputs：`head_branch`、`base_branch`、`create_pr`
   - [ ] Secrets：`PERSONAL_ACCESS_TOKEN`
@@ -45,12 +45,12 @@ PR body 若只在「開 PR 當下」生成，之後新 merge 進 dev 的 PR 就�
 - api-automation-jest repo 的實際 caller workflow 檔案（只提供範例，不送 PR 到對方 repo）
 - 開 PR 後指定 reviewers / 加 labels：caller（cp-node-graphql-endpoint、api-automation-jest）都已用 `assign_reviewers.yml` 在 PR opened 時指定 reviewer，也都沒有用 label，故不提供這兩個 input
 - Slack 通知（caller 可自行串 `notify_slack.yml`）
-- Squash merge / rebase merge 的支援（caller repo 須使用 merge commit 策略）
+- Rebase merge 的支援（rebase 後的 commit 不帶 PR 編號）
 - PR body 格式的 emoji icons（`gen-release-pr-numbers.js` 的功能，本次不複製）
 
 ### Deferred
 
-- 支援 squash merge（需改用 GitHub API `commits/{sha}/pulls`，目前 caller 用 merge commit，暫不需要）
+- 支援 rebase merge（需改用 GitHub API `commits/{sha}/pulls`，目前 caller 未使用 rebase merge，暫不需要）
 
 ## 4. Approach
 
@@ -67,11 +67,11 @@ PR body 若只在「開 PR 當下」生成，之後新 merge 進 dev 的 PR 就�
 2. `gh pr list --head {head} --base {base} --state open` 找開著的 release PR
 3. 找不到：
    - `create_pr: false` → skip（push 觸發，等排程開 PR）
-   - `create_pr: true` → `gh pr create`（body 留空，第 5 步填入）。PAT 開的 PR 會觸發 caller 的 `pull_request: opened`，reviewer 由 `assign_reviewers.yml` 指定
-4. `git log --merges --reverse --pretty='%s' origin/{base}..origin/{head}` → 以 `^Merge pull request #\K[0-9]+` 抓 PR numbers（`|| true`：grep 無 match 時 exit 1，預設 `bash -e` 會直接中止）
-5. 對每個 PR number 循序 `gh pr view` 取 title（失敗時填 `(title unavailable)`），組成 body，`gh pr edit --body` 覆蓋
+   - `create_pr: true` → `gh pr create`（標題日期用台北時間 `TZ=Asia/Taipei`；body 留空，第 5 步填入）。PAT 開的 PR 會觸發 caller 的 `pull_request: opened`，reviewer 由 `assign_reviewers.yml` 指定
+4. `git log --reverse --pretty='%s' origin/{base}..origin/{head}` → 以 `^Merge pull request #\K[0-9]+`（merge commit）或 `\(#\K[0-9]+(?=\)$)`（squash，如 dependabot）抓 PR numbers，`awk` 去重（`|| true`：grep 無 match 時 exit 1，避免 step 中止）
+5. 對每個 PR number 循序 `gh pr view` 取 title（失敗時填 `(title unavailable)`），組成 body，`gh pr edit --body` 覆蓋；沒有任何 PR 時顯示 `_No merged PRs yet._`
 
-**Concurrency：** group 為 `release-pr-{repo}-{head}-{base}`，`cancel-in-progress: false`。排程與 push 可能同時觸發；若取消，被取消的可能正是要開 PR 的那個 run。排隊執行也避免舊 run 晚完成、用舊列表覆蓋 body。
+**Concurrency：** group 為 `release-pr-{repo}-{head}-{base}`，`cancel-in-progress: false`。排程與 push 可能同時觸發；若取消，被取消的可能正是要開 PR 的那個 run。排隊執行也避免舊 run 晚完成、用舊列表覆蓋 body。限制：GitHub 每個 group 只保留一個等待中的 run，前一個 run 還在跑、排程 run 正在等待時又有 push 進來，排程 run 會被取代，PR 要等下次排程或手動觸發才會開（機率很低）。
 
 **Caller：** 單一檔案掛 `schedule` / `workflow_dispatch` / `push: dev`，傳 `create_pr: ${{ github.event_name != 'push' }}`。
 
@@ -189,11 +189,14 @@ sequenceDiagram
   4. **Case D（PR exists）**: 再次 `create_pr: true` 觸發 → 不開第二個 PR，body 更新
   5. **Case E（update body on push）**: 再 merge 一個 PR 進 head，`create_pr: false` 觸發 → body 多出該 PR
   6. **Case F（reviewer 指定）**: 新開的 PR 觸發 caller 的 `assign_reviewers.yml`，reviewer 被指定
-- **Not tested**: 排程觸發（合入 caller default branch 後由時間驗證）；squash / rebase merge（明確 out of scope）
+  7. **Case G（squash）**: squash 合併一個 PR 進 head（標題結尾 `(#N)`）→ body 列出該 PR
+- **Not tested**: 排程觸發（合入 caller default branch 後由時間驗證）；rebase merge（明確 out of scope）
 
 ## 9. Risks & open questions
 
-- **Risk**: git log `--merges` 只抓 merge commit — 若 caller repo 改用 squash merge，body 會是空的。**Mitigation**: README 明確說明「需使用 merge commit 策略」；squash 支援可後續補 fallback 路徑。
+- **Risk**: rebase merge 不留 PR 編號，這類 PR 不會出現在 body。**Mitigation**: README 說明支援的合併方式。
+- **Risk**: squash 規則以標題結尾 `(#N)` 判斷，手動寫成這種格式的 commit（例如 cherry-pick 保留原標題）也會被列入。影響僅是 body 多列一筆。
+- **Risk**: caller 若還有其他改寫 release PR body 的 workflow（如 cp-node-graphql-endpoint 的 `update_pr_description.yml`），兩者會互相覆蓋。**Mitigation**: README 提醒採用前移除。
 - **Risk**: caller 忘了傳 `create_pr: ${{ github.event_name != 'push' }}`（預設 `true`）→ push 到 dev 也會開 PR。**Mitigation**: README caller 範例與 input 說明都明列此寫法。
 - **Assumption**: PAT 已有 `repo` scope（或 fine-grained：`Pull requests: write` + `Contents: read`）。若 PAT 權限不足 → workflow 會 403。README 需說明最小權限。
 - **Open**: `api-automation-jest` 的排程頻率——caller 範例暫用 `0 2 * * 1`（週一 10:00 台北），確認後 caller 自行調整。
@@ -202,9 +205,9 @@ sequenceDiagram
 
 - [ ] `feat/CW-29348-auto-create-release-pr` PR 通過 review、合入 master
 - [ ] CI（assign_reviewers）在 template repo 端 green
-- [ ] Case A–F 手動驗證通過
+- [ ] Case A–G 手動驗證通過
 - [ ] README 含使用說明與 caller 範例
-- [ ] README 說明 merge commit 限制、PAT 最小權限、`create_pr` 寫法
+- [ ] README 說明支援的合併方式、PAT 最小權限、`create_pr` 寫法、需移除其他改寫 body 的 workflow
 
 ---
 
@@ -220,3 +223,4 @@ sequenceDiagram
 - 2026-10-19 — 移除 `reviewers` / `labels` input：現有 caller 都用 `assign_reviewers.yml` 指定 reviewer，也沒有用 label；保留只會和 `assign_reviewers.yml` 重複指定
 - 2026-10-19 — 移除 `pr_title` / `draft` input：現有 caller 都用預設標題格式（與 cp-node-graphql-endpoint 現行 `release: dev -> master (日期)` 一致）、也都直接開一般 PR；標題固定為 `release: <head> -> <base> (YYYY-MM-DD)`
 - 2026-10-19 — 拆成 `Find or create release PR` / `Update release PR body` 兩個 step，以 step output 傳 PR 編號；PAT 只放在這兩個 step 的 env，不放 job 層
+- 2026-10-19 — Re-review 修正：squash 合併的 PR（標題結尾 `(#N)`）也列入 body（cp-node-graphql-endpoint 的 dependabot PR 以 squash 自動合併）；沒有 PR 時 body 顯示 `_No merged PRs yet._`；標題日期改用台北時間；concurrency 註解補上「等待中的 run 會被取代」的限制；README 提醒移除其他改寫 body 的 workflow

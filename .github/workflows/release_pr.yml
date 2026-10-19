@@ -24,8 +24,11 @@ permissions:
 jobs:
   release-pr:
     runs-on: ubuntu-latest
-    # 排隊而不取消：排程和 push 可能同時觸發，若取消掉負責開 PR 的那個 run，
-    # 就要等到下次排程才會開。依序執行也能避免較舊的 run 晚完成、用舊列表覆蓋 body。
+    # 排隊而不取消：同一時間只有一個 run 在跑，較舊的 run 不會晚完成、用舊列表覆蓋 body；
+    # 執行中的 run 也不會被後來的 run 取消。
+    # 限制：GitHub 每個 group 只保留一個等待中的 run，有更新的 run 進來時，等待中的會被取消。
+    # 若前一個 run 還在跑、排程 run 正在等待時又有一次 push 進來，排程 run 會被擠掉，
+    # PR 要等下次排程或手動觸發才會開（機率很低）。
     concurrency:
       group: release-pr-${{ github.repository }}-${{ inputs.head_branch }}-${{ inputs.base_branch }}
       cancel-in-progress: false
@@ -62,7 +65,7 @@ jobs:
             fi
 
             PR=$(gh pr create --head "$HEAD_BRANCH" --base "$BASE_BRANCH" --body "" \
-              --title "release: $HEAD_BRANCH -> $BASE_BRANCH ($(date +'%Y-%m-%d'))")
+              --title "release: $HEAD_BRANCH -> $BASE_BRANCH ($(TZ=Asia/Taipei date +'%Y-%m-%d'))")
             echo "Created $PR"
           fi
 
@@ -74,12 +77,17 @@ jobs:
           GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           PR: ${{ steps.pr.outputs.number }}
         run: |
-          # `|| true`：沒有 merge commit 時 grep 會 exit 1，
-          # 預設的 `bash -e` 會把它當成失敗直接中止。
-          PR_NUMS=$(git log --merges --reverse --pretty='%s' "$RANGE" \
-            | grep -oP '^Merge pull request #\K[0-9]+' || true)
+          # 兩種合併方式都抓：merge commit 的標題是 `Merge pull request #N from ...`，
+          # squash 的標題結尾是 `(#N)`（例如 dependabot 自動合併的 PR）。
+          # awk 去除重複的編號。grep 沒有 match 時會 exit 1，加 `|| true` 避免 step 中止。
+          PR_NUMS=$(git log --reverse --pretty='%s' "$RANGE" \
+            | grep -oP '^Merge pull request #\K[0-9]+|\(#\K[0-9]+(?=\)$)' \
+            | awk '!seen[$0]++' || true)
 
           BODY="## Included PRs"$'\n\n'
+          if [ -z "$PR_NUMS" ]; then
+            BODY+="_No merged PRs yet._"$'\n'
+          fi
           for num in $PR_NUMS; do
             TITLE=$(gh pr view "$num" --json title -q '.title' 2>/dev/null) || TITLE="(title unavailable)"
             BODY+="- #${num} ${TITLE}"$'\n'
