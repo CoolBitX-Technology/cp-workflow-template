@@ -56,6 +56,17 @@ jobs:
 
       - name: vars
         id: vars
+        # 所有 event 欄位都走 env 再用 "$VAR" 引用，不在 run 裡直接內插 ${{ }}：
+        # commit message、PR title、branch 名稱都可以由有 push 權限的人任意構造，內插會變成 script injection。
+        env:
+          ACTOR: ${{ github.actor }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           STATUS=${WORKFLOW_CONCLUSION:-failure} # neutral, success, skipped, cancelled, timed_out, action_required, failure
           if [[ ${STATUS} == "success" ]]; then
@@ -65,19 +76,19 @@ jobs:
           else
             ICON_EMOJI=":eyes:"
           fi
-          MESSAGE=" ${ICON_EMOJI} \`dev\` \`${STATUS}\` @${{ github.actor }}
+          MESSAGE=" ${ICON_EMOJI} \`dev\` \`${STATUS}\` @${ACTOR}
           this is message"
           FOOTER="this is footer"
-          if [[ "${{ ! env.ACT }}" == "true" ]]; then
-            STATUS=${{ env.WORKFLOW_CONCLUSION }}
-            if [[ "push" == "${{ github.event_name }}" ]]; then
-              MESSAGE=" ${ICON_EMOJI} \`${{ github.ref_name }}\` \`${STATUS}\`
-              ${{ github.event.head_commit.message }}"
-              FOOTER="*${{ github.ref_name }}* of _${{ github.repository }}_"
-            elif [[ "pull_request" == "${{ github.event_name }}" ]]; then
-              MESSAGE=" ${ICON_EMOJI} \`${{ github.base_ref }}\` \`${STATUS}\`
-              ${{ github.event.pull_request.title }}"
-              FOOTER="*${{ github.head_ref }}* of _${{ github.repository }}_"
+          if [[ -z "${ACT:-}" ]]; then
+            STATUS=${WORKFLOW_CONCLUSION}
+            if [[ "push" == "$EVENT_NAME" ]]; then
+              MESSAGE=" ${ICON_EMOJI} \`${REF_NAME}\` \`${STATUS}\`
+              ${HEAD_COMMIT_MESSAGE}"
+              FOOTER="*${REF_NAME}* of _${REPOSITORY}_"
+            elif [[ "pull_request" == "$EVENT_NAME" ]]; then
+              MESSAGE=" ${ICON_EMOJI} \`${BASE_REF}\` \`${STATUS}\`
+              ${PR_TITLE}"
+              FOOTER="*${HEAD_REF}* of _${REPOSITORY}_"
             fi
           fi
 
