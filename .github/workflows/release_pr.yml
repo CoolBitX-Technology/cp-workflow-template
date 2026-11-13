@@ -18,7 +18,7 @@ on:
         type: string
         default: ''
     # 兩個 secret 都是選填，讓 caller 可以一個一個從 PAT 換成 App；caller 若傳了這裡沒宣告的 secret，run 會失敗。
-    # ponytail: 所有 caller 都換成 App 後，移除 PERSONAL_ACCESS_TOKEN 和 fallback。
+    # TODO: 所有 caller 都換成 App 後，移除 PERSONAL_ACCESS_TOKEN 和 fallback。
     secrets:
       PERSONAL_ACCESS_TOKEN:
         required: false
