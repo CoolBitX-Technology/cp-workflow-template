@@ -213,8 +213,11 @@ jobs:
 | `head_branch` | string | `dev` | 來源 branch |
 | `base_branch` | string | `master` | 目標 branch |
 | `create_pr` | boolean | `true` | 沒有開著的 PR 時是否開新 PR。caller 傳 `${{ github.event_name != 'push' }}`，push 觸發時就只更新 body |
+| `app_client_id` | string | `''` | GitHub App 的 client ID。有給就用 App token |
 
-**必要 secret：** `PERSONAL_ACCESS_TOKEN`。可以用只授權給目標 repo 的 **fine-grained PAT**（權限為 `Pull requests: write` 和 `Contents: read`），或有 `repo` scope 的 **classic PAT**。caller 可以把 repo 裡既有的 token 對應過來，例如 `PERSONAL_ACCESS_TOKEN: ${{ secrets.COOLWALLET_TEAM_GH_RELEASE }}`。release PR 的作者會是 token 的擁有者。不能用 `GITHUB_TOKEN`，因為它開的 PR 不會觸發其他 workflow。
+**Token（建議用 GitHub App）：** 傳 `app_client_id` 和 secret `RELEASE_APP_PRIVATE_KEY`，workflow 會用 `actions/create-github-app-token` 產生只限當前 repo 的 token，權限為 `Pull requests: write`、`Contents: read`，一小時後失效。App 要先安裝到 caller repo。release PR 的作者會是 App 的 bot，所以任何有 write 權限的人都可以算進 approval。
+
+舊做法仍然可用：不傳 `app_client_id` 時，改用 secret `PERSONAL_ACCESS_TOKEN`（權限同上的 fine-grained PAT，或有 `repo` scope 的 classic PAT），PR 作者會是 token 的擁有者。兩者都沒給時 workflow 會報錯。不能用 `GITHUB_TOKEN`，因為它開的 PR 不會觸發其他 workflow。
 
 **PR body 格式：**
 ```markdown
@@ -251,8 +254,9 @@ jobs:
       head_branch: dev
       base_branch: master
       create_pr: ${{ github.event_name != 'push' }}   # 只有排程 / 手動觸發會開 PR
+      app_client_id: ${{ vars.RELEASE_PR_APP_CLIENT_ID }}
     secrets:
-      PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
 ```
 
 > `schedule` 只會在 caller repo 的 **default branch** 觸發。caller workflow 要先合進 default branch，排程才會開始跑。

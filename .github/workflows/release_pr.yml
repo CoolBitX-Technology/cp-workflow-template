@@ -13,11 +13,19 @@ on:
         description: 沒有開著的 release PR 時是否開新 PR。caller 傳 `github.event_name != 'push'`，push 觸發時就只更新 body。
         type: boolean
         default: true
+      app_client_id:
+        description: release PR 用的 GitHub App client ID。有給就用 App token，沒給就用 PERSONAL_ACCESS_TOKEN。
+        type: string
+        default: ''
+    # 兩個 secret 都是選填，讓 caller 可以一個一個從 PAT 換成 App；caller 若傳了這裡沒宣告的 secret，run 會失敗。
+    # ponytail: 所有 caller 都換成 App 後，移除 PERSONAL_ACCESS_TOKEN 和 fallback。
     secrets:
       PERSONAL_ACCESS_TOKEN:
-        required: true
+        required: false
+      RELEASE_APP_PRIVATE_KEY:
+        required: false
 
-# GITHUB_TOKEN 只給 actions/checkout 和之後的 git fetch 用；所有 PR 讀寫都走 PAT。
+# GITHUB_TOKEN 只給 actions/checkout 和之後的 git fetch 用；所有 PR 讀寫都走 App token（或 PAT）。
 permissions:
   contents: read
 
@@ -42,14 +50,30 @@ jobs:
         with:
           fetch-depth: 0
 
+      # token 只限當前 repo、只有 PR 讀寫和讀 contents，一小時後失效，job 結束時會被撤銷。
+      - name: Create GitHub App token
+        id: app-token
+        if: inputs.app_client_id != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+          permission-contents: read
+
       # 輸出 release PR 編號；需要 skip 時不輸出，下一個 step 就會顯示為 skipped。
       - name: Find or create release PR
         id: pr
         env:
-          # PAT 只放在需要它的 step，不放 job 層，避免暴露給 checkout 等其他 step。
-          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          # token 只放在需要它的 step，不放 job 層，避免暴露給 checkout 等其他 step。
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.PERSONAL_ACCESS_TOKEN }}
           CREATE_PR: ${{ inputs.create_pr }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Pass app_client_id + RELEASE_APP_PRIVATE_KEY (or PERSONAL_ACCESS_TOKEN)."
+            exit 1
+          fi
+
           if [ -z "$(git log "$RANGE" --oneline)" ]; then
             echo "No new commits between $HEAD_BRANCH and $BASE_BRANCH. Skipping."
             exit 0
@@ -74,7 +98,7 @@ jobs:
       - name: Update release PR body
         if: steps.pr.outputs.number != ''
         env:
-          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.PERSONAL_ACCESS_TOKEN }}
           PR: ${{ steps.pr.outputs.number }}
         run: |
           # 兩種合併方式都抓：merge commit 的標題是 `Merge pull request #N from ...`，
