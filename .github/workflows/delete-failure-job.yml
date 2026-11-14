@@ -24,6 +24,17 @@ jobs:
         with:
           version: 'latest'
 
+      # 輸入走 env 並先檢查格式，避免手動輸入的值被當成 shell 指令或 kubectl flag。
       - name: Execute kubectl command
+        env:
+          JOB_NAME: ${{ github.event.inputs.jobName }}
+          NAMESPACE: ${{ github.event.inputs.namespace }}
         run: |
-          kubectl delete cronjob ${{ github.event.inputs.jobName }} -n ${{ github.event.inputs.namespace }}
+          K8S_NAME='^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+          for v in "$JOB_NAME" "$NAMESPACE"; do
+            if [[ ! "$v" =~ $K8S_NAME || ${#v} -gt 63 ]]; then
+              echo "::error::Invalid Kubernetes name: '$v' (lowercase letters, digits and '-', max 63 chars)"
+              exit 1
+            fi
+          done
+          kubectl delete cronjob --namespace="$NAMESPACE" -- "$JOB_NAME"

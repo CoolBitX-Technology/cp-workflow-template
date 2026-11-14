@@ -13,9 +13,11 @@ jobs:
           fetch-depth: 0
       
       - name: Create Changelog
+        env:
+          HEAD_REF: ${{ github.head_ref }} # branch 名稱可被任意構造，不在 run 裡直接內插
         run: |
             git log -n 5
-            echo ${{ github.head_ref }}
+            echo "$HEAD_REF"
             echo 'CHANGELOG<<EOF' >> $GITHUB_ENV
             node scripts/gen-release-pr-numbers.js >> $GITHUB_ENV
             echo 'EOF' >> $GITHUB_ENV
